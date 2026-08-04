@@ -3554,7 +3554,11 @@
       "upload_file": "Importer un fichier",
       "use_a_skill": "Utiliser une compétence",
       "used": "Utilisé",
-      "voice_input": "Saisie vocale"
+      "voice_input": "Saisie vocale",
+      "dev_container": "Dev Container",
+      "this_session_runs_in_a_dev_container": "Cette session s'exécute dans un Dev Container",
+      "this_session_runs_in_a_dev_container_id": "Cette session s'exécute dans un Dev Container ({{id}})",
+      "withdraw_trust": "Retirer ma confiance"
     },
     "chatPane": {
       "agent_list": "Liste des agents",
@@ -5172,6 +5176,26 @@
       "download_zip": "Télécharger le zip",
       "open_github_issue": "Ouvrir un ticket GitHub",
       "prefill_hint": "L’ouverture du ticket pré-remplit les détails — glissez-y ensuite le zip."
+    },
+    "devcontainerTrustCard": {
+      "configuration": "Configuration",
+      "could_not_grant_trust": "Impossible d'accorder la confiance",
+      "dev_container": "Dev Container",
+      "dev_container_trust_prompt": "Demande de confiance du Dev Container",
+      "fingerprint": "Empreinte",
+      "hide_details": "Masquer les détails",
+      "image": "Image",
+      "name": "Nom",
+      "not_now": "Pas maintenant",
+      "nothing_is_built_or_changed": "Rien n'est construit ni modifié — votre conversation continue de s'exécuter directement sur cette machine.",
+      "run_this_project_s_agent_inside_its_dev_container": "Exécuter l'agent de ce projet dans son Dev Container ?",
+      "show_what_this_will_run": "Afficher ce qui sera exécuté",
+      "this_project_ships_a_dev_container": "Ce projet fournit un Dev Container — un environnement prêt à l'emploi décrit dans devcontainer.json. Si vous lui accordez votre confiance, Kiro Crew le construit avec Docker et y exécute l'agent, de sorte que les commandes et les builds utilisent les outils propres au projet.",
+      "trust": "Accorder ma confiance",
+      "trust_applies_to_this_exact_configuration": "La confiance s'applique exactement à cette configuration — si elle change, la question vous sera posée à nouveau. Vous pouvez retirer votre confiance depuis la puce Dev Container.",
+      "trusting": "Confiance en cours…",
+      "trusting_runs_the_setup_commands_in_this_file": "Accorder votre confiance exécute les commandes d'installation de ce fichier et donne au conteneur les accès qu'il demande. N'accordez votre confiance qu'aux projets que vous connaissez.",
+      "while_a_session_runs_in_the_container": "Pendant qu'une session s'exécute dans le conteneur, les tâches planifiées, les sous-agents et les leçons enregistrées ne sont pas disponibles."
     }
   },
   "hooks": {

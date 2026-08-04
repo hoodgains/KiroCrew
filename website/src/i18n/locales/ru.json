@@ -3601,7 +3601,11 @@
       "upload_file": "Загрузить файл",
       "use_a_skill": "Использовать навык",
       "used": "Использовано",
-      "voice_input": "Голосовой ввод"
+      "voice_input": "Голосовой ввод",
+      "dev_container": "Dev Container",
+      "this_session_runs_in_a_dev_container": "Этот сеанс выполняется в Dev Container",
+      "this_session_runs_in_a_dev_container_id": "Этот сеанс выполняется в Dev Container ({{id}})",
+      "withdraw_trust": "Отозвать доверие"
     },
     "chatPane": {
       "agent_list": "Список агентов",
@@ -5232,6 +5236,26 @@
       "download_zip": "Скачать zip",
       "open_github_issue": "Открыть issue на GitHub",
       "prefill_hint": "При открытии issue детали подставятся автоматически — затем перетащите туда zip."
+    },
+    "devcontainerTrustCard": {
+      "configuration": "Конфигурация",
+      "could_not_grant_trust": "Не удалось предоставить доверие",
+      "dev_container": "Dev Container",
+      "dev_container_trust_prompt": "Запрос доверия к Dev Container",
+      "fingerprint": "Отпечаток",
+      "hide_details": "Скрыть подробности",
+      "image": "Образ",
+      "name": "Имя",
+      "not_now": "Не сейчас",
+      "nothing_is_built_or_changed": "Ничего не собирается и не изменяется — ваш чат продолжает работать прямо на этой машине.",
+      "run_this_project_s_agent_inside_its_dev_container": "Запустить агента этого проекта внутри его Dev Container?",
+      "show_what_this_will_run": "Показать, что будет запущено",
+      "this_project_ships_a_dev_container": "В этом проекте есть Dev Container — готовое окружение, описанное в devcontainer.json. Если вы ему доверяете, Kiro Crew собирает его с помощью Docker и запускает агента внутри, поэтому команды и сборки используют собственные инструменты проекта.",
+      "trust": "Доверять",
+      "trust_applies_to_this_exact_configuration": "Доверие относится именно к этой конфигурации — если она изменится, вас спросят снова. Отозвать доверие можно через чип Dev Container.",
+      "trusting": "Предоставление доверия…",
+      "trusting_runs_the_setup_commands_in_this_file": "Доверие запускает команды настройки из этого файла и даёт контейнеру запрошенный им доступ. Доверяйте только тем проектам, которые вы знаете.",
+      "while_a_session_runs_in_the_container": "Пока сеанс выполняется в контейнере, запланированные задания, субагенты и сохранённые уроки недоступны."
     }
   },
   "hooks": {

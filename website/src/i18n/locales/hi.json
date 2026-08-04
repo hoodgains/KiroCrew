@@ -3507,7 +3507,11 @@
       "upload_file": "फ़ाइल अपलोड करें",
       "use_a_skill": "स्किल का उपयोग करें",
       "used": "उपयोग",
-      "voice_input": "वॉइस इनपुट"
+      "voice_input": "वॉइस इनपुट",
+      "dev_container": "Dev Container",
+      "this_session_runs_in_a_dev_container": "यह सत्र एक Dev Container में चल रहा है",
+      "this_session_runs_in_a_dev_container_id": "यह सत्र एक Dev Container में चल रहा है ({{id}})",
+      "withdraw_trust": "भरोसा वापस लें"
     },
     "chatPane": {
       "agent_list": "एजेंट सूची",
@@ -5112,6 +5116,26 @@
       "download_zip": "zip डाउनलोड करें",
       "open_github_issue": "GitHub पर issue खोलें",
       "prefill_hint": "issue खोलने पर विवरण पहले से भर जाते हैं — फिर zip को उसमें खींचकर डालें।"
+    },
+    "devcontainerTrustCard": {
+      "configuration": "कॉन्फ़िगरेशन",
+      "could_not_grant_trust": "भरोसा प्रदान नहीं किया जा सका",
+      "dev_container": "Dev Container",
+      "dev_container_trust_prompt": "Dev Container के लिए भरोसे का अनुरोध",
+      "fingerprint": "फ़िंगरप्रिंट",
+      "hide_details": "विवरण छिपाएँ",
+      "image": "इमेज",
+      "name": "नाम",
+      "not_now": "अभी नहीं",
+      "nothing_is_built_or_changed": "कुछ भी नहीं बनाया या बदला जाता — चैट सीधे इसी मशीन पर चलती रहेगी।",
+      "run_this_project_s_agent_inside_its_dev_container": "इस प्रोजेक्ट के एजेंट को उसके Dev Container के अंदर चलाएँ?",
+      "show_what_this_will_run": "दिखाएँ कि क्या चलाया जाएगा",
+      "this_project_ships_a_dev_container": "इस प्रोजेक्ट के साथ एक Dev Container आता है — devcontainer.json में वर्णित एक तैयार वातावरण। भरोसा करने पर Kiro Crew इसे Docker से बनाता है और एजेंट को उसके अंदर चलाता है, जिससे कमांड और बिल्ड प्रोजेक्ट के अपने टूल का उपयोग करते हैं।",
+      "trust": "भरोसा करें",
+      "trust_applies_to_this_exact_configuration": "भरोसा ठीक इसी कॉन्फ़िगरेशन पर लागू होता है — यह बदलने पर फिर से पूछा जाएगा। Dev Container चिप से भरोसा वापस लिया जा सकता है।",
+      "trusting": "भरोसा दिया जा रहा है…",
+      "trusting_runs_the_setup_commands_in_this_file": "भरोसा करने पर इस फ़ाइल के सेटअप कमांड चलते हैं और कंटेनर को वह पहुँच मिलती है जो वह मांगता है। केवल पहचाने हुए प्रोजेक्ट पर ही भरोसा करें।",
+      "while_a_session_runs_in_the_container": "जब कोई सत्र कंटेनर में चल रहा हो, तब निर्धारित कार्य, सब-एजेंट और सहेजे गए सबक उपलब्ध नहीं होते।"
     }
   },
   "hooks": {

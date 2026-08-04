@@ -3554,7 +3554,11 @@
       "upload_file": "Carica file",
       "use_a_skill": "Usa una skill",
       "used": "Utilizzato",
-      "voice_input": "Input vocale"
+      "voice_input": "Input vocale",
+      "dev_container": "Dev Container",
+      "this_session_runs_in_a_dev_container": "Questa sessione viene eseguita in un Dev Container",
+      "this_session_runs_in_a_dev_container_id": "Questa sessione viene eseguita in un Dev Container ({{id}})",
+      "withdraw_trust": "Revoca la fiducia"
     },
     "chatPane": {
       "agent_list": "Elenco degli agenti",
@@ -5172,6 +5176,26 @@
       "download_zip": "Scarica lo zip",
       "open_github_issue": "Apri una issue su GitHub",
       "prefill_hint": "Aprendo la issue i dettagli vengono precompilati — poi trascinaci lo zip."
+    },
+    "devcontainerTrustCard": {
+      "configuration": "Configurazione",
+      "could_not_grant_trust": "Non è stato possibile concedere la fiducia",
+      "dev_container": "Dev Container",
+      "dev_container_trust_prompt": "Richiesta di fiducia del Dev Container",
+      "fingerprint": "Impronta",
+      "hide_details": "Nascondi i dettagli",
+      "image": "Immagine",
+      "name": "Nome",
+      "not_now": "Non ora",
+      "nothing_is_built_or_changed": "Non viene compilato né modificato nulla: la tua chat continua a essere eseguita direttamente su questa macchina.",
+      "run_this_project_s_agent_inside_its_dev_container": "Eseguire l'agente di questo progetto nel suo Dev Container?",
+      "show_what_this_will_run": "Mostra cosa verrà eseguito",
+      "this_project_ships_a_dev_container": "Questo progetto include un Dev Container: un ambiente già pronto descritto in devcontainer.json. Se gli concedi fiducia, Kiro Crew lo compila con Docker e vi esegue l'agente, così i comandi e le compilazioni usano gli strumenti propri del progetto.",
+      "trust": "Concedi fiducia",
+      "trust_applies_to_this_exact_configuration": "La fiducia si applica esattamente a questa configurazione: se cambia, ti verrà chiesto di nuovo. Puoi revocare la fiducia dal chip Dev Container.",
+      "trusting": "Concessione della fiducia…",
+      "trusting_runs_the_setup_commands_in_this_file": "Concedere la fiducia esegue i comandi di configurazione contenuti in questo file e assegna al contenitore l'accesso che richiede. Concedi fiducia solo ai progetti che riconosci.",
+      "while_a_session_runs_in_the_container": "Mentre una sessione è in esecuzione nel contenitore, i processi pianificati, i subagenti e le lezioni salvate non sono disponibili."
     }
   },
   "hooks": {

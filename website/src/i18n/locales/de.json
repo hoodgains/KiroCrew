@@ -3507,7 +3507,11 @@
       "upload_file": "Datei hochladen",
       "use_a_skill": "Einen Skill verwenden",
       "used": "Verbraucht",
-      "voice_input": "Spracheingabe"
+      "voice_input": "Spracheingabe",
+      "dev_container": "Dev Container",
+      "this_session_runs_in_a_dev_container": "Diese Sitzung läuft in einem Dev Container",
+      "this_session_runs_in_a_dev_container_id": "Diese Sitzung läuft in einem Dev Container ({{id}})",
+      "withdraw_trust": "Vertrauen widerrufen"
     },
     "chatPane": {
       "agent_list": "Agenten-Liste",
@@ -5112,6 +5116,26 @@
       "download_zip": "ZIP herunterladen",
       "open_github_issue": "GitHub-Issue öffnen",
       "prefill_hint": "Beim Öffnen des Issues werden die Details vorbefüllt — ziehen Sie dann die ZIP-Datei hinein."
+    },
+    "devcontainerTrustCard": {
+      "configuration": "Konfiguration",
+      "could_not_grant_trust": "Vertrauen konnte nicht erteilt werden",
+      "dev_container": "Dev Container",
+      "dev_container_trust_prompt": "Vertrauensabfrage für den Dev Container",
+      "fingerprint": "Fingerprint",
+      "hide_details": "Details ausblenden",
+      "image": "Image",
+      "name": "Name",
+      "not_now": "Jetzt nicht",
+      "nothing_is_built_or_changed": "Es wird nichts gebaut und nichts geändert — Ihr Chat läuft weiter direkt auf diesem Rechner.",
+      "run_this_project_s_agent_inside_its_dev_container": "Den Agenten dieses Projekts in seinem Dev Container ausführen?",
+      "show_what_this_will_run": "Anzeigen, was ausgeführt wird",
+      "this_project_ships_a_dev_container": "Dieses Projekt bringt einen Dev Container mit — eine vorbereitete Umgebung, die in devcontainer.json beschrieben ist. Wenn Sie ihm vertrauen, baut Kiro Crew ihn mit Docker und führt den Agenten darin aus, sodass Befehle und Builds die Werkzeuge des Projekts selbst verwenden.",
+      "trust": "Vertrauen",
+      "trust_applies_to_this_exact_configuration": "Das Vertrauen gilt genau für diese Konfiguration — ändert sie sich, werden Sie erneut gefragt. Über den Dev Container-Chip können Sie das Vertrauen widerrufen.",
+      "trusting": "Vertrauen wird erteilt …",
+      "trusting_runs_the_setup_commands_in_this_file": "Mit dem Vertrauen werden die Einrichtungsbefehle in dieser Datei ausgeführt und der Container erhält den Zugriff, den er verlangt. Vertrauen Sie nur Projekten, die Sie kennen.",
+      "while_a_session_runs_in_the_container": "Während eine Sitzung im Container läuft, sind geplante Aufträge, Subagenten und gespeicherte Lektionen nicht verfügbar."
     }
   },
   "hooks": {

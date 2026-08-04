@@ -3460,7 +3460,11 @@
       "upload_file": "上传文件",
       "use_a_skill": "使用技能",
       "used": "已用",
-      "voice_input": "语音输入"
+      "voice_input": "语音输入",
+      "dev_container": "Dev Container",
+      "this_session_runs_in_a_dev_container": "此会话在 Dev Container 中运行",
+      "this_session_runs_in_a_dev_container_id": "此会话在 Dev Container 中运行 ({{id}})",
+      "withdraw_trust": "撤销信任"
     },
     "chatPane": {
       "agent_list": "代理列表",
@@ -5052,6 +5056,26 @@
       "download_zip": "下载 zip",
       "open_github_issue": "新建 GitHub issue",
       "prefill_hint": "打开后会自动填好详情 — 再把 zip 拖进去即可。"
+    },
+    "devcontainerTrustCard": {
+      "configuration": "配置",
+      "could_not_grant_trust": "无法授予信任",
+      "dev_container": "Dev Container",
+      "dev_container_trust_prompt": "Dev Container 信任提示",
+      "fingerprint": "指纹",
+      "hide_details": "隐藏详情",
+      "image": "镜像",
+      "name": "名称",
+      "not_now": "暂不",
+      "nothing_is_built_or_changed": "不会构建或更改任何内容——你的会话将继续直接在本机上运行。",
+      "run_this_project_s_agent_inside_its_dev_container": "在此项目的 Dev Container 内运行其代理？",
+      "show_what_this_will_run": "查看将要运行的内容",
+      "this_project_ships_a_dev_container": "此项目附带一个 Dev Container，即 devcontainer.json 中描述的现成环境。若选择信任，Kiro Crew 会使用 Docker 构建它并在其中运行代理，因此命令和构建都使用项目自带的工具链。",
+      "trust": "信任",
+      "trust_applies_to_this_exact_configuration": "信任仅适用于当前这份配置——配置一旦变更，系统会再次询问你。你可以通过 Dev Container 标记撤销信任。",
+      "trusting": "正在授予信任…",
+      "trusting_runs_the_setup_commands_in_this_file": "信任会运行此文件中的安装命令，并授予容器它所请求的访问权限。请仅信任你认识的项目。",
+      "while_a_session_runs_in_the_container": "会话在容器中运行期间，定时任务、子代理和已保存的经验均不可用。"
     }
   },
   "hooks": {

@@ -3554,7 +3554,11 @@
       "upload_file": "Enviar arquivo",
       "use_a_skill": "Usar uma habilidade",
       "used": "Usado",
-      "voice_input": "Entrada de voz"
+      "voice_input": "Entrada de voz",
+      "dev_container": "Dev Container",
+      "this_session_runs_in_a_dev_container": "Esta sessão é executada num Dev Container",
+      "this_session_runs_in_a_dev_container_id": "Esta sessão é executada num Dev Container ({{id}})",
+      "withdraw_trust": "Retirar a confiança"
     },
     "chatPane": {
       "agent_list": "Lista de agentes",
@@ -5172,6 +5176,26 @@
       "download_zip": "Baixar zip",
       "open_github_issue": "Abrir issue no GitHub",
       "prefill_hint": "Ao abrir a issue os detalhes são preenchidos automaticamente — depois arraste o zip para lá."
+    },
+    "devcontainerTrustCard": {
+      "configuration": "Configuração",
+      "could_not_grant_trust": "Não foi possível conceder confiança",
+      "dev_container": "Dev Container",
+      "dev_container_trust_prompt": "Solicitação de confiança do Dev Container",
+      "fingerprint": "Impressão digital",
+      "hide_details": "Ocultar os detalhes",
+      "image": "Imagem",
+      "name": "Nome",
+      "not_now": "Agora não",
+      "nothing_is_built_or_changed": "Nada é compilado nem alterado — seu chat continua sendo executado diretamente nesta máquina.",
+      "run_this_project_s_agent_inside_its_dev_container": "Executar o agente deste projeto dentro do seu Dev Container?",
+      "show_what_this_will_run": "Mostrar o que será executado",
+      "this_project_ships_a_dev_container": "Este projeto inclui um Dev Container — um ambiente pronto descrito em devcontainer.json. Se você confiar nele, o Kiro Crew o compila com o Docker e executa o agente lá dentro, de modo que os comandos e as compilações usem as ferramentas do próprio projeto.",
+      "trust": "Confiar",
+      "trust_applies_to_this_exact_configuration": "A confiança se aplica exatamente a esta configuração — se ela mudar, você será perguntado novamente. Você pode retirar a confiança pelo chip Dev Container.",
+      "trusting": "A conceder confiança…",
+      "trusting_runs_the_setup_commands_in_this_file": "Confiar executa os comandos de configuração deste arquivo e concede ao contêiner o acesso que ele pede. Confie apenas em projetos que você reconhece.",
+      "while_a_session_runs_in_the_container": "Enquanto uma sessão é executada no contêiner, as tarefas agendadas, os subagentes e as lições salvas ficam indisponíveis."
     }
   },
   "hooks": {
