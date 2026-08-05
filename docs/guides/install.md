@@ -378,11 +378,16 @@ rule needs 4.x or newer). So on Debian, Arch, RHEL and Amazon Linux nothing
 changes.
 
 **Running the gateway outside systemd** (for example `kirocrew gateway` in a
-terminal) does not pick up the profile, because systemd is what applies it. Use:
+terminal) does not pick up the profile, because systemd is what applies it —
+and there is no unprivileged way to enter it yourself. `aa_change_onexec()` into
+a named profile is not permitted for an ordinary unconfined user, and `aa-exec`
+does **not** fail when it cannot transition: it execs the command unconfined, so
+`aa-exec -p kirocrew-userns -- kirocrew gateway` appears to work and changes
+nothing. Run the gateway as the service instead.
 
-```bash
-aa-exec -p kirocrew-userns -- kirocrew gateway
-```
+That covers the desktop app too: it probes the port first and **reuses** a
+gateway already listening there rather than spawning its own, so a
+service-managed gateway is the one the app talks to.
 
 **Please do not "fix" this by setting the sysctl to 0.** That disables a
 kernel-wide protection for every application on the machine to satisfy one
@@ -411,6 +416,12 @@ python3 -c "
 import kiro_crew.sandbox as sb
 sb.reset_backend(); print(sb.detect_backend(), sb._last_unshare_failure)"
 ```
+
+`kirocrew doctor` reports the same verdict without the one-liner, and the
+dashboard's **Sandbox unavailable** screen names the mechanism and the command
+for it directly — the probe classifies the failing step into one of
+`apparmor_userns`, `max_user_namespaces`, `userns_denied` or `no_user_ns`, which
+is the row of the table above that applies to you.
 
 ## Troubleshooting
 

@@ -229,7 +229,9 @@ _WARM_JOIN_TIMEOUT_SECS = 2.0
 # Steps of the launcher's namespace handshake, named in probe failure reasons so
 # a caller can tell the host mechanisms apart instead of seeing a bare errno: a
 # NEWNS denial is Ubuntu's AppArmor userns restriction, while NEWUSER with
-# ENOSPC/EUSERS is a hardened user.max_user_namespaces=0.
+# ENOSPC/EUSERS is a hardened user.max_user_namespaces=0. ENOSPC is ALSO what
+# momentary fd/disk pressure looks like, so the cap verdict is only promoted to
+# permanent once the retry reproduces it (see _repeated_cap_exhaustion).
 _PROBE_STEP_NEWUSER = "unshare(CLONE_NEWUSER)"
 _PROBE_STEP_NEWNS = "unshare(CLONE_NEWNS)"
 
@@ -249,6 +251,111 @@ _PROBE_HANDSHAKE_TIMEOUT_SECS = 5.0
 # ``None`` means the last probe succeeded (or none has run yet). Consumed by
 # detect_backend() for cache policy and by wrap_argv() for error reporting.
 _last_unshare_failure: tuple[bool, str] | None = None
+
+# ── Remedy tokens for a Linux user-namespace denial ──
+# The probe already knows WHICH step failed and with which errno, and those two
+# facts identify the host mechanism (see the table in docs/guides/install.md).
+# That knowledge used to die inside the reason string, leaving every presentation
+# layer to show a bare ``errno 1 (EPERM)`` and no way forward — issue #1660.
+# These tokens carry the mechanism out to callers machine-readably, so the
+# dashboard, doctor and logs can each render their own remedy copy instead of
+# pattern-matching English prose out of the detail.
+REMEDY_APPARMOR_USERNS = "apparmor_userns"  # Ubuntu >= 23.10 restricted profile
+REMEDY_MAX_USER_NAMESPACES = "max_user_namespaces"  # user.max_user_namespaces=0
+REMEDY_NO_USER_NS = "no_user_ns"  # kernel built without CONFIG_USER_NS
+REMEDY_USERNS_DENIED = "userns_denied"  # userns creation refused outright
+
+# Remedy token for the most recent probe failure, or "" when the mechanism is
+# unknown (a harness failure, a non-Linux host, or a deferred on-loop probe).
+#
+# Write invariant: cleared at the top of every ``_probe_unshare_once()`` and at
+# each ``_probe_unshare()`` branch that records a failure WITHOUT probing, and
+# set only by ``_probe_failure`` for a real unshare step. That keeps the token
+# from outliving the failure it describes — the paths inside the probe that
+# return a verdict directly (child died, unexpected step) are covered by the
+# single clear rather than needing one each.
+_last_unshare_remedy: str = ""
+
+
+def _remedy_for_step(label: str, err: int) -> str:
+    """Name the host mechanism behind one failed unshare step.
+
+    ``label`` is one of the two ``_PROBE_STEP_*`` constants for a real kernel
+    verdict; any other label is a harness failure (fork/pipe under pressure)
+    which says nothing about the host and therefore has no remedy.
+
+    A NEWNS denial is only reachable AFTER NEWUSER succeeded, which is the
+    signature of Ubuntu's restricted-profile restriction rather than of userns
+    being unavailable — the distinction that decides whether the fix is an
+    AppArmor profile or a sysctl.
+    """
+    if label == _PROBE_STEP_NEWNS:
+        return REMEDY_APPARMOR_USERNS if err == errno.EPERM else ""
+    if label != _PROBE_STEP_NEWUSER:
+        return ""
+    if err in (errno.ENOSPC, errno.EUSERS):
+        return REMEDY_MAX_USER_NAMESPACES
+    if err in (errno.EINVAL, errno.ENOSYS):
+        return REMEDY_NO_USER_NS
+    if err == errno.EPERM:
+        return REMEDY_USERNS_DENIED
+    return ""
+
+
+# Concrete, mechanism-specific first line for the ``no_backend`` guidance in a
+# SandboxUnavailableError message. Kept as prose here (rather than only as a
+# token) because logs, doctor and the Slack surface all read the message text —
+# only the dashboard consumes the token and renders its own translated copy.
+_LINUX_REMEDY_GUIDANCE = {
+    REMEDY_APPARMOR_USERNS: (
+        "This host looks like Ubuntu 23.10 or newer with "
+        "kernel.apparmor_restrict_unprivileged_userns=1: the user namespace was "
+        "created, then the mount namespace was denied because the restricted "
+        "AppArmor profile carries no CAP_SYS_ADMIN. Run `kirocrew service "
+        "install` to install the narrow kirocrew-userns AppArmor profile (it "
+        "grants only `userns` and applies to the kirocrew service alone). "
+        "systemd is what attaches that profile, so the service is the only path "
+        "that applies it — a gateway started by hand stays unconfined, and "
+        "`aa-exec -p` cannot fix that for an unprivileged user because entering "
+        "a named profile needs privilege and aa-exec execs unconfined rather "
+        "than failing. The desktop app reuses a gateway already listening on the "
+        "port, so installing the service covers that install too. Do NOT set the "
+        "sysctl to 0 — that removes a kernel-wide protection to satisfy one app. "
+    ),
+    REMEDY_MAX_USER_NAMESPACES: (
+        "User namespace creation hit the per-user cap, which usually means "
+        "user.max_user_namespaces=0 (a CIS-hardened default). Raise that sysctl. "
+    ),
+    REMEDY_NO_USER_NS: (
+        "The kernel rejected the user namespace outright, which means it was "
+        "built without CONFIG_USER_NS. There is no host-level fix short of a "
+        "different kernel. "
+    ),
+    REMEDY_USERNS_DENIED: (
+        "User namespace creation was refused. On Debian-family hosts check "
+        "kernel.unprivileged_userns_clone (it must be 1); inside a container "
+        "this is usually the container's own seccomp filter denying unshare, "
+        "which is fixed with container run flags rather than host config. "
+    ),
+}
+
+
+def _linux_remedy_guidance(remedy: str) -> str:
+    """Mechanism-specific guidance prefix for a remedy token (``""`` if none)."""
+    return _LINUX_REMEDY_GUIDANCE.get(remedy, "")
+
+
+def unavailable_remedy() -> str:
+    """Public: remedy token for the most recent sandbox probe failure.
+
+    ``""`` when the last probe succeeded, when none has run, or when the failure
+    identifies no host mechanism. Pair it with :func:`unavailable_kind` — a
+    ``"transient"`` failure is momentary resource pressure and must never be
+    presented as something the operator should reconfigure.
+    """
+    if _last_unshare_failure is None:
+        return ""
+    return _last_unshare_remedy
 
 
 def _close_probe_fds(*fds: int) -> None:
@@ -273,8 +380,13 @@ def _probe_failure(label: str, err: int) -> tuple[bool, bool, str]:
     makes ``detect_backend()`` honest. Only the momentary-resource errnos are
     transient — widening that set caused incident 2026-07-18, where one EAGAIN
     was cached as "this host has no sandbox" for an hour.
+
+    Also records the remedy token for the step, so the mechanism reaches callers
+    structurally instead of only as prose inside ``reason``.
     """
+    global _last_unshare_remedy
     name = errno.errorcode.get(err, "?")
+    _last_unshare_remedy = _remedy_for_step(label, err)
     return (False, err in _TRANSIENT_PROBE_ERRNOS, f"{label} failed with errno {err} ({name})")
 
 
@@ -497,6 +609,10 @@ def _probe_unshare_once() -> tuple[bool, bool, str]:
     defers to the background warm thread when a loop is running, so the fork,
     pipe reads and ``waitpid`` here never block the event loop.
     """
+    global _last_unshare_remedy
+    # One clear per probe covers every verdict below, including the paths that
+    # return without going through _probe_failure (child died, unexpected step).
+    _last_unshare_remedy = ""
     try:
         libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
         libc.unshare.argtypes = [ctypes.c_int]
@@ -547,9 +663,34 @@ def _probe_unshare_once() -> tuple[bool, bool, str]:
 _warm_thread: threading.Thread | None = None
 
 
+def _repeated_cap_exhaustion(first_reason: str | None, reason: str) -> bool:
+    """True when both probe attempts hit the per-user namespace cap identically.
+
+    `user.max_user_namespaces` exhaustion surfaces as ENOSPC, which is also what
+    momentary fd/disk pressure looks like — so the errno alone cannot tell a
+    hardened host from a merely busy one. Classifying it permanent on first
+    sighting would cache "this host has no sandbox" for a host that recovers
+    seconds later, which is the failure mode a widened transient set caused
+    before. Leaving it transient forever is the opposite error: on a host with the
+    cap configured to 0 the probe can never succeed, so the gate shows "temporary
+    limit, try again" permanently and never offers the sysctl that would fix it.
+
+    Two identical cap failures either side of the retry delay disambiguate them: a
+    configured cap of 0 reproduces byte-for-byte, transient pressure generally does
+    not. Only the cap token qualifies — every other transient errno keeps its
+    retry-and-recover semantics untouched.
+    """
+    return (
+        first_reason is not None
+        and reason == first_reason
+        and _last_unshare_remedy == REMEDY_MAX_USER_NAMESPACES
+    )
+
+
 def _background_warm() -> None:
     """Run the probe off-loop and populate the cache. Thread target."""
     global _backend, _last_unshare_failure
+    first_reason: str | None = None
     for attempt in (1, 2):
         ok, transient, reason = _probe_unshare_once()
         if ok:
@@ -557,12 +698,20 @@ def _background_warm() -> None:
             _backend = "namespace"
             logger.info("Background warm: sandbox backend = namespace")
             return
+        if transient and _repeated_cap_exhaustion(first_reason, reason):
+            transient = False
+            logger.warning(
+                "Background warm: %s reproduced across both attempts — treating the "
+                "per-user namespace cap as permanent so the remedy is offered",
+                reason,
+            )
         _last_unshare_failure = (transient, reason)
         if not transient:
             logger.warning("Background warm: probe permanent failure: %s", reason)
             _backend = "none"
             return
         logger.warning("Background warm: probe transient (attempt %d/2): %s", attempt, reason)
+        first_reason = reason
         if attempt == 1:
             time.sleep(_PROBE_TRANSIENT_RETRY_DELAY_SECS)
     # Both attempts transient — leave cache uncached (None) so next call re-tries
@@ -644,9 +793,10 @@ def _probe_unshare() -> bool:
     classification — a transient result is not evidence that the host lacks
     a sandbox backend.
     """
-    global _last_unshare_failure
+    global _last_unshare_failure, _last_unshare_remedy
     if sys.platform != "linux":
         _last_unshare_failure = (False, "not Linux")
+        _last_unshare_remedy = ""
         return False
 
     # Fast path: the cache already proved user namespaces work -- no probe
@@ -671,19 +821,30 @@ def _probe_unshare() -> bool:
             "probe deferred to background thread (cold cache on event loop); "
             "cache warms in ms — retry",
         )
+        # No probe ran, so any remedy on record describes an older failure.
+        _last_unshare_remedy = ""
         return False
 
     # Off-loop: direct probe with one retry on transient failure.
+    first_reason: str | None = None
     for attempt in (1, 2):
         ok, transient, reason = _probe_unshare_once()
         if ok:
             _last_unshare_failure = None
             return True
+        if transient and _repeated_cap_exhaustion(first_reason, reason):
+            transient = False
+            logger.warning(
+                "userns probe: %s reproduced across both attempts — treating the "
+                "per-user namespace cap as permanent so the remedy is offered",
+                reason,
+            )
         _last_unshare_failure = (transient, reason)
         if not transient:
             logger.warning("userns probe failed (permanent): %s", reason)
             return False
         logger.warning("userns probe failed (transient, attempt %d/2): %s", attempt, reason)
+        first_reason = reason
         if attempt == 1:
             time.sleep(_PROBE_TRANSIENT_RETRY_DELAY_SECS)
     return False
@@ -2101,19 +2262,25 @@ class SandboxUnavailableError(RuntimeError):
 
     ``detail`` is the technical probe reason, which names the failing step (e.g.
     ``"unshare(CLONE_NEWNS) failed with errno 1 (EPERM)"``).
+
+    ``remedy`` is a machine-readable ``REMEDY_*`` token naming the host mechanism
+    behind a Linux userns denial (``""`` when unknown), so a presentation layer
+    can render the concrete fix for that mechanism rather than a bare errno.
     """
 
-    def __init__(self, message: str, kind: str, detail: str) -> None:
+    def __init__(self, message: str, kind: str, detail: str, remedy: str = "") -> None:
         super().__init__(message)
         self.kind = kind
         self.detail = detail
+        self.remedy = remedy
 
 
 def reset_backend() -> None:
     """Reset cached backend (for testing or config change)."""
-    global _backend, _last_unshare_failure
+    global _backend, _last_unshare_failure, _last_unshare_remedy
     _backend = None
     _last_unshare_failure = None
+    _last_unshare_remedy = ""
 
 
 # wrap_argv's ``mode`` vocabulary is a superset of the governance ``sandbox``
@@ -2408,7 +2575,7 @@ def wrap_argv(
                     '("macOS marker site and the kernel cross-check"). '
                 )
             else:
-                guidance = (
+                guidance = _linux_remedy_guidance(_last_unshare_remedy) + (
                     "If this host genuinely lacks a sandbox backend, set "
                     "agent.sandbox_allow_unsandboxed_exec=true in "
                     "~/.kiro/crew/config.json to explicitly allow unsandboxed "
@@ -2441,6 +2608,9 @@ def wrap_argv(
                 f"Probe detail: {probe_reason}. " + guidance,
                 kind=_classify_unavailable(transient),
                 detail=probe_reason,
+                # A transient failure identifies no host mechanism to fix, so it
+                # must not carry a remedy that invites reconfiguring the host.
+                remedy="" if transient else _last_unshare_remedy,
             )
         # Opted in: warn (or info) and return unmodified argv
         _warn_no_isolation(mode)
