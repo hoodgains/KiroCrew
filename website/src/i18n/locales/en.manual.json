@@ -869,7 +869,8 @@
       "name_is_required": "Name is required",
       "save": "Save",
       "saving": "Saving...",
-      "select_at_least_one_day": "Select at least one day"
+      "select_at_least_one_day": "Select at least one day",
+      "timezone": "Timezone"
     },
     "jobLogsView": {
       "failed_to_load_history": "Failed to load history"
@@ -1131,6 +1132,10 @@
       "assistant": "Assistant",
       "selected": "selected",
       "you": "You"
+    },
+    "searchableSelect": {
+      "no_matches": "No matches",
+      "search": "Search…"
     },
     "secretField": {
       "hide": "Hide",
@@ -1775,10 +1780,6 @@
       "chatNavPanel": {
         "link": "Link"
       },
-      "chatSettings": {
-        "enter_for_newline": "Enter for newline",
-        "shift_enter_for_newline": "Shift+Enter for newline"
-      },
       "folderPanel": {
         "empty_folder": "Empty folder",
         "loading": "Loading…",
@@ -2131,7 +2132,9 @@
         "embeddings_loading": "embeddings loading",
         "graph_view": "Graph View",
         "list_view": "List View",
-        "sources_tab": "Sources"
+        "sources_tab": "Sources",
+        "status_active": "Active",
+        "status_archived": "Archived"
       },
       "sourceGroup": {
         "items_count": "({{count}} items)",
@@ -2277,20 +2280,6 @@
         "title_describe_the_convention_the_agent_should_a": "# Title\n\nDescribe the convention the agent should always follow.",
         "workspace": "Workspace"
       },
-      "cronTab": {
-        "continue_session": "Continue session",
-        "enter_a_5_field_cron_expression_or_interval_in_s": "Enter a 5-field cron expression or interval in seconds (≥60)",
-        "failed_to_update_job_check_server_connection": "Failed to update job — check server connection",
-        "name_and_message_are_required": "Name and message are required",
-        "no_result_yet": "No result yet",
-        "pause": "Pause",
-        "resume": "Resume",
-        "resume_job_to_run": "Resume job to run",
-        "run_now": "Run now",
-        "running": "Running",
-        "select_at_least_one_day": "Select at least one day",
-        "view_last_result": "View last result"
-      },
       "displayTab": {
         "change_the_dashboard_font_family_persists_across": "Change the dashboard font family. Persists across sessions.",
         "choose_a_color_palette_each_theme_supports_dark": "Choose a color palette. Each theme supports dark and light modes. Custom themes are stored in ~/.kiro/crew/themes/.",
@@ -2311,6 +2300,7 @@
         "import_failed": "Import failed",
         "importing": "Importing...",
         "invalid_archive": "Invalid archive",
+        "mode": "Mode",
         "network_error": "Network error",
         "network_error_during_preview": "Network error during preview"
       },

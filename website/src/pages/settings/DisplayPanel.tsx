@@ -6,6 +6,7 @@ import { useTheme } from '../../hooks/useTheme'
 import type { ColorTheme } from '../../hooks/useTheme'
 import { useUIMode } from '../../hooks/useUIMode'
 import { SettingsSection, SettingsCard, SettingsSelect, SettingsStepper, SettingsButtonGroup, SettingsInput } from '../../components/settings'
+import SimpleSelect from '../../components/SimpleSelect'
 import { useThemeEditor, ThemeEditorPanel } from '../../components/themeEditor'
 import Clickable from '../../components/Clickable'
 import { useAppSelector, useAppDispatch } from '../../store'
@@ -271,12 +272,19 @@ export function DisplayPanel() {
           <div className="flex flex-col gap-1.5 pt-2">
             <span className="text-[12px] text-muted font-medium uppercase tracking-[.04em]">{i18nT('pages.settings.displayPanel.install_theme')}</span>
             <div className="flex items-center gap-2">
-              <select aria-label={i18nT('pages.settings.displayPanel.theme_source')} value={installType}
-                onChange={e => setInstallType(e.target.value as 'github' | 'local')}
-                className="text-[13px] px-2 py-1.5 rounded-md bg-bg border border-border text-text cursor-pointer">
-                <option value="github">{i18nT('pages.settings.displayPanel.github')}</option>
-                <option value="local">{i18nT('pages.settings.displayPanel.local_folder')}</option>
-              </select>
+              {/* minWidth floors the trigger so the row does not reflow when the
+                  value flips to the wider "Local folder" — the native select it
+                  replaced sized itself to its widest option, and the location
+                  input beside it is `flex-1`, so an auto-width trigger would
+                  resize the input on every change. */}
+              <SimpleSelect
+                options={['github', 'local']}
+                optionLabels={[i18nT('pages.settings.displayPanel.github'), i18nT('pages.settings.displayPanel.local_folder')]}
+                value={installType}
+                onChange={v => setInstallType(v as 'github' | 'local')}
+                aria-label={i18nT('pages.settings.displayPanel.theme_source')}
+                style={{ minWidth: 140 }}
+              />
               <input aria-label={i18nT('pages.settings.displayPanel.theme_source_location')} value={installValue}
                 onChange={e => setInstallValue(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleInstall() }}
