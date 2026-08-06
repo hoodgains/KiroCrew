@@ -663,7 +663,7 @@ export default function KiroPrerequisiteGate({ children }: { children: ReactNode
             <p className="text-[13px] text-muted" aria-live="polite">
               {status.installed
                 ? i18nT('components.kiroPrerequisiteGate.kiro_cli_is_installed_finish_signing_in_to_conti')
-                : `Kiro CLI is required on the ${platform} gateway host.`}
+                : i18nT('components.kiroPrerequisiteGate.kiro_cli_is_required_on_the_gateway_host', { platform })}
             </p>
             <Btn
               type="button"
