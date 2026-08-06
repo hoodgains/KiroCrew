@@ -168,11 +168,11 @@ from kiro_crew.session import HEARTBEAT_KEY, SessionManager
 from kiro_crew.skills import SkillsLoader
 from kiro_crew.slack.client import RealSlackClient
 from kiro_crew.slack.format import (
+    SLACK_MSG_LIMIT,
     build_cron_ack_block,
     build_options_blocks,
     extract_options,
-    split_message,
-    to_slack_mrkdwn,
+    render_for_slack,
 )
 from kiro_crew.slack.handler import (
     _get_agent_for_session,
@@ -300,6 +300,31 @@ _BACKGROUND_APPROVAL_SOURCES = frozenset({"cron", "heartbeat", "taskrunner", "au
 # Slack Block Kit section.text hard limit is 3000 chars.
 # We split cron output at this boundary so each chunk fits in a section block.
 _CRON_MSG_LIMIT = 3000
+
+
+def _heartbeat_slack_parts(title: str, result_text: str) -> list[str]:
+    """Render a heartbeat completion into postable Slack parts.
+
+    Shared by all four heartbeat delivery branches so they cannot drift. Two
+    things it fixes relative to the per-branch f-string it replaces:
+
+    - **It splits.** Those branches posted one unsplit message, and Slack
+      rejects anything past ~40,000 characters outright -- so a long heartbeat
+      result was silently lost rather than truncated.
+    - **It redacts around the transform.** ``_deliver_result`` redacts
+      ``result_text`` at its head, but ``to_slack_mrkdwn`` strips ANSI escapes
+      and that strip can reassemble a credential the escapes had broken up.
+      Redacting again after conversion is what closes that.
+
+    The ``💓 *title*`` header is Slack mrkdwn already, so it stays OUTSIDE
+    conversion and rides on the first part only.
+    """
+    header = f"💓 *{title}*\n\n"
+    body = render_for_slack(result_text, limit=max(1, SLACK_MSG_LIMIT - len(header)))
+    parts = [header + body[0]] if body else [header]
+    parts.extend(body[1:])
+    return parts
+
 
 # Volatile patterns stripped before hashing cron results for dedup.
 _VOLATILE_RE = re.compile(
@@ -1621,14 +1646,16 @@ class GatewayOrchestrator:
         if not channel:
             logger.warning("Cron %s: no channel resolved for subagent response", parent_key)
             return False
-        # Defense-in-depth: redact at the Slack boundary so this helper is safe
-        # even if a future caller forgets to pre-redact (security-controls).
-        text, _ = redact_exfiltration_urls(text)
-        text, _ = redact_credentials(text)
         # render [OPTIONS: ...] tags as interactive buttons, matching
         # the interactive-handler / subagent-completion / dashboard-mirror paths.
+        # Extracted from the raw text: the tag is a plain-text marker, so pulling
+        # it off before conversion is what makes the controls independent of what
+        # conversion (and its 39,000-char self-truncation) does to the tail.
         text, options = extract_options(text)
-        for part in split_message(to_slack_mrkdwn(text), limit=_CRON_MSG_LIMIT):
+        # render_for_slack IS the redaction boundary here -- it normalises ANSI
+        # first so a credential broken up by escapes cannot be reassembled by the
+        # strip inside to_slack_mrkdwn, and redacts again after conversion.
+        for part in render_for_slack(text, limit=_CRON_MSG_LIMIT):
             await self.slack.post_message(channel, part, thread_ts)
         if options:
             try:
@@ -2369,10 +2396,21 @@ class GatewayOrchestrator:
                                 job.created_by or self._owner_id, job.name
                             )
                         if channel:
-                            redacted, _ = redact_exfiltration_urls(result_text)
-                            redacted, _ = redact_credentials(redacted)
-                            post_text = f"⏰ *Cron: {job.name}*\n\n{to_slack_mrkdwn(redacted)}"
-                            parts = split_message(post_text, limit=_CRON_MSG_LIMIT)
+                            # The header is Slack mrkdwn already, so it stays
+                            # OUTSIDE to_slack_mrkdwn -- routing it through
+                            # conversion would re-interpret its *bold*. Only the
+                            # body goes through the shared render pipeline, which
+                            # owns redaction on both sides of the transform.
+                            header = f"⏰ *Cron: {job.name}*\n\n"
+                            body = render_for_slack(
+                                result_text, limit=max(1, _CRON_MSG_LIMIT - len(header))
+                            )
+                            # Header rides on the first part only, as before. An
+                            # empty result still yields one part so the ack
+                            # button and the dedup bookkeeping below have a
+                            # message to attach to.
+                            parts = [header + body[0]] if body else [header]
+                            parts.extend(body[1:])
                             # First part as Block Kit message with ack button
                             blocks: list[dict] = [
                                 {
@@ -2933,9 +2971,7 @@ class GatewayOrchestrator:
         # turn itself already ran, so failures here don't fail the cycle).
         try:
             if response:
-                reply_text, _ = redact_exfiltration_urls(to_slack_mrkdwn(response))
-                reply_text, _ = redact_credentials(reply_text)
-                for part in split_message(reply_text):
+                for part in render_for_slack(response):
                     await self.slack.post_message(channel, part, thread_ts)
         except Exception:
             logger.exception("AutoNudge: slack posting failed for %s (turn ran)", key)
@@ -3452,8 +3488,8 @@ class GatewayOrchestrator:
                 try:
                     channel = await self.slack.open_dm(self._owner_id)
                     if channel:
-                        post = f"💓 *{title}*\n\n{to_slack_mrkdwn(result_text)}"
-                        await self.slack.post_message(channel, post)
+                        for post in _heartbeat_slack_parts(title, result_text):
+                            await self.slack.post_message(channel, post)
                 except Exception:
                     logger.exception("Heartbeat Slack delivery failed")
             return
@@ -3464,13 +3500,13 @@ class GatewayOrchestrator:
             try:
                 if self.slack and len(parts) == 3:
                     chan, ts = parts[1], parts[2]
-                    post = f"💓 *{title}*\n\n{to_slack_mrkdwn(result_text)}"
-                    await self.slack.post_message(chan, post, ts)
+                    for post in _heartbeat_slack_parts(title, result_text):
+                        await self.slack.post_message(chan, post, ts)
                 elif self.slack and self._owner_id:
                     chan = await self.slack.open_dm(self._owner_id)
                     if chan:
-                        post = f"💓 *{title}*\n\n{to_slack_mrkdwn(result_text)}"
-                        await self.slack.post_message(chan, post)
+                        for post in _heartbeat_slack_parts(title, result_text):
+                            await self.slack.post_message(chan, post)
             except Exception:
                 logger.exception("Heartbeat Slack delivery failed")
             if self.dashboard_state:
@@ -3482,8 +3518,8 @@ class GatewayOrchestrator:
             try:
                 channel = await self.slack.open_dm(self._owner_id)
                 if channel:
-                    post = f"💓 *{title}*\n\n{to_slack_mrkdwn(result_text)}"
-                    await self.slack.post_message(channel, post)
+                    for post in _heartbeat_slack_parts(title, result_text):
+                        await self.slack.post_message(channel, post)
             except Exception:
                 logger.exception("Heartbeat Slack delivery failed")
         if self.dashboard_state:
@@ -4260,12 +4296,12 @@ class GatewayOrchestrator:
                                     self.sessions.get_channel(parent_key) if self.sessions else None
                                 ) or await self.slack.open_dm(self._owner_id)
                                 if channel:
-                                    reply_text, _ = redact_exfiltration_urls(
-                                        to_slack_mrkdwn(response)
-                                    )
-                                    reply_text, _ = redact_credentials(reply_text)
-                                    reply_text, options = extract_options(reply_text)
-                                    for part in split_message(reply_text):
+                                    # OPTIONS off the RAW text, then render: the
+                                    # tag is plain text, so extracting it after
+                                    # conversion made the controls hostage to
+                                    # to_slack_mrkdwn's 39,000-char truncation.
+                                    reply_text, options = extract_options(response)
+                                    for part in render_for_slack(reply_text):
                                         await self.slack.post_message(channel, part, parent_key)
                                     try:
                                         elapsed = (

@@ -304,14 +304,26 @@ _REDACTION_SINKS: tuple[tuple[str, str, str], ...] = (
         "the same output-boundary reason as the app activity log.",
     ),
     (
+        "Slack render pipeline",
+        "slack/format.py",
+        "THE Slack egress boundary: every path that puts text on Slack renders "
+        "through render_for_slack / render_one_for_slack, and a build gate "
+        "(test_slack_render_pipeline.py) fails if any module converts markdown "
+        "itself instead. Both helpers strip ANSI and run redact_via_context "
+        "BEFORE conversion and again after, because neither ordering is safe "
+        "alone -- the ANSI strip inside to_slack_mrkdwn reassembles a credential "
+        "the escapes had broken up, while its 39k self-truncation cuts one into "
+        "an unmatchable prefix. Text is pre-split below that ceiling so "
+        "conversion never truncates at all.",
+    ),
+    (
         "Slack session mirror",
         "dashboard/chat_slack.py",
         "Thread titles and the conversation history seeded into a newly linked "
         "thread. Titles go through redact_and_truncate (redaction BEFORE "
         "truncation, so a truncation boundary cannot split and hide a "
-        "credential); history goes through redact_via_context BEFORE mrkdwn "
-        "conversion, because to_slack_mrkdwn self-truncates at 39k and would "
-        "otherwise cut a credential into an unmatchable prefix.",
+        "credential); history is delegated to the shared Slack render pipeline "
+        "above with redact_via_context injected as its redactor.",
     ),
     (
         "Configured-channel session mirror",

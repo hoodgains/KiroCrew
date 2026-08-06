@@ -4088,24 +4088,45 @@ class TestDeliverCronResponse:
     async def test_redacts_before_posting(self):
         # Defense-in-depth: the helper must redact at the Slack boundary even
         # if the caller already redacted (security-controls).
+        #
+        # Asserted on the OUTCOME rather than on which redactor got called. The
+        # boundary is now render_for_slack (which runs redact_via_context on both
+        # sides of the mrkdwn conversion), so a mock-call assertion against
+        # gateway.redact_credentials would only prove the old wiring still
+        # existed -- it would pass for a path that redacted nothing and fail for
+        # a correct path that redacts somewhere else. What must be true is that
+        # the secret does not reach Slack.
         orch, slack = self._orch_with_slack()
         orch.sessions.get_channel = MagicMock(return_value="C123")
-        with (
-            patch(
-                "kiro_crew.slack.gateway.redact_exfiltration_urls",
-                return_value=("urlsafe", []),
-            ) as rurl,
-            patch(
-                "kiro_crew.slack.gateway.redact_credentials",
-                return_value=("REDACTED", []),
-            ) as rcred,
-        ):
-            posted = await orch._deliver_cron_response("cron:job1", "tok http://evil.example")
+
+        secret = "AKIAIOSFODNN7EXAMPLE"
+        posted = await orch._deliver_cron_response("cron:job1", f"tok {secret}")
 
         assert posted is True
-        rurl.assert_called_once()
-        rcred.assert_called_once()
-        assert "REDACTED" in slack.post_message.call_args.args[1]
+        body = slack.post_message.call_args.args[1]
+        assert secret not in body
+        assert secret[:8] not in body, "a credential fragment reached Slack"
+
+    @pytest.mark.asyncio
+    async def test_redacts_a_credential_ansi_escapes_had_split(self):
+        """The reassembly hazard, at this call site.
+
+        An escape sequence dropped into the middle of a key hides it from the
+        credential regex, and the ANSI strip inside to_slack_mrkdwn puts it back
+        together -- so a path that redacts BEFORE normalising posts the key
+        intact. This is the case the old redact-then-convert ordering here got
+        wrong, and it is why the shared pipeline strips ANSI first.
+        """
+        orch, slack = self._orch_with_slack()
+        orch.sessions.get_channel = MagicMock(return_value="C123")
+
+        secret = "AKIAIOSFODNN7EXAMPLE"
+        obfuscated = secret[:4] + "\x1b[0m" + secret[4:]
+        posted = await orch._deliver_cron_response("cron:job1", f"tok {obfuscated}")
+
+        assert posted is True
+        body = slack.post_message.call_args.args[1]
+        assert secret not in body, "the ANSI strip reassembled the credential"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

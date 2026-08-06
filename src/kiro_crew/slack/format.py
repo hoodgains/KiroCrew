@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Callable, NamedTuple
 
 from kiro_crew.constants import OPTIONS_RE_LINE
 
@@ -45,14 +46,47 @@ def extract_options(text: str) -> tuple[str, list[str]]:
     return cleaned, choices
 
 
-def build_options_blocks(choices: list[str]) -> list[dict]:
+def _redact_choices(
+    choices: list[str],
+    redactor: Callable[[str], str] | None,
+) -> list[str]:
+    """Normalise and redact OPTIONS choices before they are put on Slack.
+
+    Choice text is LLM-authored and reaches Slack through Block Kit, which no
+    redactor covers: ``build_options_blocks`` embeds it in a ``plain_text``
+    label and in the button ``value`` that is echoed back into the session on
+    submit. So a turn ending ``[OPTIONS: Retry with AKIA… | Abort]`` would put
+    the key on the wire and then read it back.
+
+    Redaction happens HERE, at the sink, rather than at each caller, for the
+    same reason the message pipeline was hoisted: a caller that extracts the
+    tag from raw text (which it must, so conversion's 39,000-char truncation
+    cannot eat the tag) would otherwise hand over unscanned choices, and every
+    future caller would have to remember. It runs BEFORE the ``[:75]`` / ``[:150]``
+    slices below, because slicing first can cut a credential into a prefix the
+    regex no longer matches -- the same hazard as the conversion ceiling.
+    """
+    if redactor is None:
+        # Deferred: format.py is a leaf module and platform.context is not.
+        from kiro_crew.platform.context import redact_via_context
+
+        redactor = redact_via_context
+    return [redactor(strip_ansi(choice or "")) for choice in choices]
+
+
+def build_options_blocks(
+    choices: list[str],
+    *,
+    redactor: Callable[[str], str] | None = None,
+) -> list[dict]:
     """Build Slack Block Kit checkboxes + Send button for multi-select OPTIONS."""
+    safe = _redact_choices(choices[:10], redactor)  # checkboxes support up to 10
     options = [
         {
             "text": {"type": "plain_text", "text": choice[:75]},
             "value": choice[:150],
         }
-        for choice in choices[:10]  # checkboxes support up to 10
+        for choice in safe
     ]
     return [
         {
@@ -74,13 +108,18 @@ def build_options_blocks(choices: list[str]) -> list[dict]:
     ]
 
 
-def build_options_selected_blocks(choices: list[str], selected_indices: list[int] | int) -> list[dict]:
+def build_options_selected_blocks(
+    choices: list[str],
+    selected_indices: list[int] | int,
+    *,
+    redactor: Callable[[str], str] | None = None,
+) -> list[dict]:
     """Render OPTIONS as static text with selected choices highlighted."""
     if isinstance(selected_indices, int):
         selected_indices = [selected_indices]
     selected_set = set(selected_indices)
     parts = []
-    for i, choice in enumerate(choices[:10]):
+    for i, choice in enumerate(_redact_choices(choices[:10], redactor)):
         if i in selected_set:
             parts.append(f"*{choice[:72]}*")
         else:
@@ -395,3 +434,188 @@ def split_message(text: str, limit: int = SLACK_MSG_LIMIT) -> list[str]:
             parts.append(text[:cut])
         text = remainder
     return parts
+
+
+def render_for_slack(
+    text: str,
+    *,
+    limit: int = SLACK_MSG_LIMIT,
+    prefix: str = "",
+    redactor: Callable[[str], str] | None = None,
+) -> list[str]:
+    """Render arbitrary text into postable Slack messages, redacting safely.
+
+    This is the ONLY supported way to put text on Slack. It exists because the
+    two obvious orderings of redact-vs-convert are each unsafe on their own, so
+    a call site that picks one is exposed to whichever hazard it did not pick:
+
+    - **redact then convert** — ``to_slack_mrkdwn`` calls :func:`strip_ansi`,
+      and that strip *reassembles* a credential the escapes had broken up. A key
+      written as ``AKIA<esc>IOSF…`` does not match the credential regex on the
+      way in and arrives at Slack whole.
+    - **convert then redact** — ``to_slack_mrkdwn`` self-truncates at
+      ``SLACK_MAX_TEXT`` before converting, so it can cut a credential in half
+      before the regex ever runs, leaving an unmatchable prefix on the wire (and
+      silently dropping everything past 39,000 characters).
+
+    The pipeline that holds is therefore::
+
+        strip_ansi -> redact -> pre-split -> convert -> redact -> split
+
+    Normalising first means the first redaction sees the credential whole while
+    the text is still one piece. Pre-splitting below ``SLACK_MAX_TEXT`` means
+    conversion never reaches its own truncation, so neither the tail nor a
+    secret is cut there; blocks are halved against the limit so a conversion
+    that *grows* text (table and mermaid rewriting) still cannot reach it.
+    Redaction runs a second time on each converted block because conversion can
+    still reorder or drop characters (inline markup, link rewriting) in ways
+    that reveal a secret only afterwards — redacting on both sides of the
+    transform is what makes the guarantee independent of what conversion does to
+    the bytes.
+
+    When — and only when — the pre-split produces more than one block, tables are
+    left as raw markdown. ``_convert_tables`` keys a table's labels off the first
+    ``|`` row it sees, so a block beginning part-way through a table adopts a
+    DATA row as its header: that row's values are then only emitted as labels
+    (and vanish entirely if no rows follow, because ``_flush_table`` returns
+    early on an empty body). Raw pipes read worse on mobile, which is why this is
+    not the default — but a message that never splits keeps the nicer rendering,
+    and one that does keeps all of its rows.
+
+    Args:
+        text: Raw text to render. ``None``-ish and blank input yields ``[]``.
+        limit: Per-message character ceiling, ``prefix`` included. Callers with a
+            tighter budget than Slack's (cron uses 3,000) pass their own.
+        prefix: Prepended to every returned part and charged against ``limit``,
+            so a decorated part cannot overflow. Splitting first and decorating
+            afterwards is what made the backfill's icon overflow the limit.
+        redactor: Text-to-text redactor. Defaults to the platform-context shim
+            :func:`kiro_crew.platform.context.redact_via_context`, which is
+            fail-closed and honours a host's own credential policy. Injectable so
+            tests can assert ordering without composing a platform context.
+
+    Returns:
+        Ready-to-post strings, each already prefixed and within ``limit``.
+        Empty when there is nothing to say, so callers can post unconditionally.
+    """
+    if redactor is None:
+        # Deferred: format.py is a leaf module and platform.context is not.
+        from kiro_crew.platform.context import redact_via_context
+
+        redactor = redact_via_context
+
+    cleaned = redactor(strip_ansi(text or ""))
+    if not cleaned.strip():
+        return []
+
+    blocks = split_message(cleaned, limit=SLACK_MAX_TEXT // 2)
+    # A single block IS the whole message, so no table can be straddled.
+    keep_tables = len(blocks) > 1
+    # Charge the prefix against the limit rather than adding it afterwards.
+    body_limit = max(1, limit - len(prefix))
+
+    parts: list[str] = []
+    for block in blocks:
+        converted = redactor(to_slack_mrkdwn(block, keep_tables=keep_tables))
+        parts.extend(f"{prefix}{part}" for part in split_message(converted, limit=body_limit))
+    return parts
+
+
+class SlackRender(NamedTuple):
+    """One rendered Slack message, plus whether redaction changed anything.
+
+    The flag exists because a caller can need to ACT on the fact that redaction
+    fired, not merely receive the redacted text. Slack's streaming path is that
+    case: it has already posted the answer incrementally, and it overwrites that
+    visible message ONLY when it learns the final text had to be redacted. If the
+    render absorbed the redaction silently, the caller would see clean text,
+    conclude nothing had happened, and leave the unredacted stream on screen.
+    """
+
+    text: str
+    redacted: bool
+
+
+def render_one_for_slack(
+    text: str,
+    *,
+    limit: int = SLACK_MAX_TEXT,
+    keep_tables: bool | None = None,
+    redactor: Callable[[str], str] | None = None,
+) -> SlackRender:
+    """Same pipeline as :func:`render_for_slack`, collapsed to ONE message.
+
+    For sinks that take a single string and manage their own presentation --
+    Slack's streaming ``stop_stream`` / ``chat.update``, and the review-mode
+    draft block. Those cannot accept a parts list without reshaping the live
+    turn path, but they still need the ordering guarantee, so they share the
+    pipeline through this form instead of calling ``to_slack_mrkdwn`` directly.
+
+    The difference from :func:`render_for_slack` is only what happens at the
+    ceiling. Conversion is still kept away from its own ``SLACK_MAX_TEXT``
+    self-truncation by pre-splitting, so a credential can neither be reassembled
+    by the ANSI strip nor cut in half before the regex runs. What cannot be
+    preserved is the tail: a single message has nowhere to put it. So the
+    overflow is cut HERE, after both redaction passes, and announced -- rather
+    than being silently dropped inside a conversion the caller cannot see.
+
+    Args:
+        text: Raw text to render.
+        limit: Character ceiling for the returned message.
+        keep_tables: Force markdown tables to stay raw. This flag can only ever
+            ADD rawness -- it cannot switch the straddle guard off. When the text
+            had to be pre-split, tables stay raw regardless of what the caller
+            passed, because a block beginning part-way through a table adopts a
+            DATA row as its header and that row's values are then lost silently.
+            Forcing raw costs rendering quality; forcing conversion would cost
+            data, so only the first direction is a caller's to choose.
+        redactor: See :func:`render_for_slack`.
+
+    Returns:
+        A :class:`SlackRender`. ``text`` is ``""`` when there is nothing to say;
+        ``redacted`` is True when either redaction pass changed the text, which is
+        the signal a caller that already published the text needs in order to go
+        back and replace it.
+    """
+    if redactor is None:
+        # Deferred: format.py is a leaf module and platform.context is not.
+        from kiro_crew.platform.context import redact_via_context
+
+        redactor = redact_via_context
+
+    _redact_with = redactor
+    changed = False
+
+    def _redact(value: str) -> str:
+        """Redact, remembering whether it actually changed anything.
+
+        Only the redactor's effect counts. The ANSI strip also changes text, but
+        stripping escapes is normalisation, not a disclosure that was caught.
+        """
+        nonlocal changed
+        out = _redact_with(value)
+        if out != value:
+            changed = True
+        return out
+
+    cleaned = _redact(strip_ansi(text or ""))
+    if not cleaned.strip():
+        return SlackRender("", changed)
+
+    blocks = split_message(cleaned, limit=SLACK_MAX_TEXT // 2)
+    # Advisory, not authoritative: a caller may ask for raw tables, but may not
+    # ask for conversion across a split it cannot see.
+    keep_tables = bool(keep_tables) or len(blocks) > 1
+    rendered = "\n".join(
+        _redact(to_slack_mrkdwn(block, keep_tables=keep_tables)) for block in blocks
+    )
+
+    if len(rendered) > limit:
+        cut = rendered[:limit].rfind("\n")
+        if cut <= 0:
+            cut = limit
+        notice = f"\n\n_…truncated ({len(rendered)} chars total)_"
+        # Charge the notice against the ceiling so the result really fits.
+        cut = max(1, min(cut, limit - len(notice)))
+        rendered = rendered[:cut] + notice
+    return SlackRender(rendered, changed)
