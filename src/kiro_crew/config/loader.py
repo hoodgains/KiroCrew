@@ -2850,6 +2850,16 @@ class SlackConfig:
             tags=["slack"],
         ),
     )
+    auto_project_dir: str = field(
+        default="",
+        metadata=_meta(
+            "Auto Project Dir",
+            "Base directory containing project folders. When set, incoming Slack "
+            "messages from a channel whose name matches a subfolder get that "
+            "folder as the session working directory (CWD). Empty disables.",
+            tags=["slack"],
+        ),
+    )
 
 
 @dataclass
@@ -7882,6 +7892,7 @@ class KiroCrewConfig:
                 home_tab_sessions_per_kind=_safe_int(
                     slack_data.get("home_tab_sessions_per_kind", 5), 5
                 ),
+                auto_project_dir=str(slack_data.get("auto_project_dir", "") or "").strip(),
             ),
             publish=PublishConfig(
                 allowed_destinations=[d for d in _dests_raw if isinstance(d, str) and d],

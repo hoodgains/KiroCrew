@@ -98,7 +98,7 @@ class FakeSessions:
         self.opt_out: dict = {}
         self.batched = 0
 
-    async def get_or_create(self, key, *, agent, channel_id):
+    async def get_or_create(self, key, *, agent, channel_id, **_kw):
         self.last_agent = agent
         if self._raise is not None:
             raise self._raise

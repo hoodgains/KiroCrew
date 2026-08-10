@@ -357,7 +357,7 @@ class FakeSessions:
         return (key, origin) in self.paused_deliveries
 
     async def get_or_create(
-        self, key: str, *, agent: Any = None, channel_id: Any = None, model: Any = None
+        self, key: str, *, agent: Any = None, channel_id: Any = None, model: Any = None, **_kw: Any
     ) -> Any:
         self.last_agent = agent
         self.last_model = model

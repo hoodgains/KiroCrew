@@ -113,7 +113,7 @@ class FakeSessions:
     def is_mirror_paused(self, key, *, origin=False) -> bool:
         return False
 
-    async def get_or_create(self, key, *, agent, channel_id):
+    async def get_or_create(self, key, *, agent, channel_id, **_kw):
         self.last_agent = agent
         if self._raise is not None:
             raise self._raise
