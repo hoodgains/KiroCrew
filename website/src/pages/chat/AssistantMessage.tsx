@@ -301,6 +301,7 @@ const AssistantMessage = memo(function AssistantMessage({ content, isStreaming, 
             {billed && <span>{billed} ·</span>}
             <Clock size={11} aria-hidden="true" />
             <span>{fmtTurnElapsed(turnStats.elapsed_ms)}</span>
+            <span className="text-muted/40">· {turnStats.model || 'Auto'}</span>
           </>
         })()}
       </div>

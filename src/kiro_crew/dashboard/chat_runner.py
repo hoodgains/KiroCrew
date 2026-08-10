@@ -1443,6 +1443,10 @@ def _attach_turn_stats(
     back into the PREVIOUS turn's assistant message and overwrite its stats
     with the failed turn's numbers. No-op when the turn produced no assistant
     message or when there is nothing to show.
+
+    ``client`` is the LLM provider; when supplied the resolved model id is
+    included in the stats so the frontend can display which model served the
+    turn (especially useful under the "auto" router).
     """
     if elapsed_ms <= 0:
         return
