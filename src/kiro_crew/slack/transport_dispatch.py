@@ -431,9 +431,11 @@ async def handle_message_transport(
 
         # ── Auto-project CWD resolution (channel name → project folder) ──
         _auto_cwd: str | None = None
+        _ch_name: str | None = None
         _orch_cfg = get_orch_cfg()
-        if _orch_cfg and _orch_cfg.slack.auto_project_dir and not channel.startswith("D"):
-            _ch_name: str | None = None
+        # Resolve channel name for non-DM channels (needed for both auto-project
+        # CWD and for persisting the name to metadata for dashboard display).
+        if not channel.startswith("D"):
             _ds = get_dashboard_state()
             if _ds and hasattr(_ds, "_channel_resolver"):
                 _resolver = getattr(_ds, "_channel_resolver", None)
@@ -460,7 +462,7 @@ async def handle_message_transport(
                             _auto_project_channel_names[channel] = _ch_name
                     except Exception:
                         pass
-            if _ch_name:
+            if _ch_name and _orch_cfg and _orch_cfg.slack.auto_project_dir:
                 _auto_cwd = resolve_channel_project(_ch_name, _orch_cfg.slack.auto_project_dir)
 
         client, is_new, resumed = await sessions.get_or_create(
@@ -490,6 +492,27 @@ async def handle_message_transport(
         )
         if is_new:
             await sessions.set_channel(session_key, channel)
+            # Persist channel name so the dashboard sidebar can display it.
+            if _ch_name and conversation_log:
+                if not _is_slack_restricted(session_key):
+                    try:
+                        await asyncio.to_thread(
+                            conversation_log.update_metadata,
+                            session_key,
+                            {"channel_name": _ch_name},
+                        )
+                    except Exception:
+                        logger.debug("Failed to persist channel_name for %s", session_key)
+                    # Also set on the in-memory slot so the gateway save cycle
+                    # does not overwrite the disk value with an empty string.
+                    _ds_state = get_dashboard_state()
+                    if _ds_state and hasattr(_ds_state, "_slots"):
+                        from kiro_crew.dashboard.channel_slots import channel_slot_name
+
+                        _slot_key = channel_slot_name(session_key)
+                        _slot = getattr(_ds_state, "_slots", {}).get(_slot_key)
+                        if _slot is not None:
+                            _slot.channel_name = _ch_name
         if not linked_session_key and not sessions.get_session_for_thread(reply_ts):
             # Two conditions, deliberately. The first is the routing decision
             # made at the top of this function. The second is a FRESH read,
@@ -565,6 +588,68 @@ async def handle_message_transport(
                 await _refresh_dashboard_tab(session_key)
 
         # ── Build message with context ──
+        # Fetch thread parent / prior messages for new sessions in existing
+        # threads (mirrors native handle_message thread context injection).
+        thread_parent_text: str | None = None
+        _thread_meta: str | None = None
+        compressed: str | None = None
+        if is_new and not resumed and thread_ts:
+            # Try full thread transcript first
+            try:
+                _thread_replies = await slack.fetch_thread_replies(channel, thread_ts)
+                if _thread_replies and len(_thread_replies) > 1:
+                    _lines: list[str] = []
+                    for _msg in _thread_replies[:-1]:
+                        _sender = _msg.get("user") or _msg.get("bot_id") or "unknown"
+                        _txt = _msg.get("text") or ""
+                        if _txt:
+                            _lines.append(f"<{_sender}> {_txt}")
+                    if _lines:
+                        _thread_transcript = "\n".join(_lines)
+                        if len(_thread_transcript) > 4000:
+                            _thread_transcript = _thread_transcript[-4000:]
+                            _thread_transcript = "[...earlier messages truncated...]\n" + _thread_transcript
+                        compressed = (
+                            "[Prior thread messages (before you were mentioned)]\n"
+                            + _thread_transcript
+                        )
+            except Exception:
+                logger.debug("Thread transcript fetch failed for %s/%s", channel, thread_ts)
+
+            # Fetch the parent message text directly
+            if not compressed:
+                thread_parent_text = await slack.fetch_message(channel, thread_ts)
+                if thread_parent_text:
+                    from kiro_crew.slack.handler import redact
+                    thread_parent_text = redact(thread_parent_text)
+                    if len(thread_parent_text) > 3000:
+                        thread_parent_text = (
+                            thread_parent_text[:3000]
+                            + "\n[truncated — use batch_get_thread_replies for full text]"
+                        )
+
+            # Fallback: if fetch_message failed, try conversations.replies for metadata
+            if not thread_parent_text and not compressed:
+                try:
+                    replies = await slack.fetch_thread_replies(channel, thread_ts, limit=1, warn_on_pagination=False)
+                    if replies:
+                        parent = replies[0]
+                        from kiro_crew.slack.handler import redact
+                        reply_count = parent.get("reply_count", 0)
+                        parent_text = redact(parent.get("text", ""))
+                        if parent_text:
+                            if len(parent_text) > 500:
+                                parent_text = parent_text[:500] + "…[truncated]"
+                            if reply_count > 0:
+                                _thread_meta = (
+                                    f'[Thread has {reply_count} replies. Parent message: "{parent_text}"]\n'
+                                    "Use batch_get_thread_replies to read the full thread if needed.\n"
+                                )
+                            else:
+                                _thread_meta = f'[Parent message: "{parent_text}"]\n'
+                except Exception:
+                    logger.debug("Thread meta fallback failed for %s/%s", channel, thread_ts)
+
         if context_builder:
             # Off-loop: build_message embeds the episodic query (blocking urllib).
             full_message, _ = await run_in_embed_pool(
@@ -586,6 +671,9 @@ async def handle_message_transport(
                 # deliberately still reads, which is the documented difference
                 # between the two modes.
                 blocks_reads=is_thread_temporary(session_key),
+                compressed_history=compressed,
+                thread_parent_text=thread_parent_text,
+                thread_meta=_thread_meta,
                 runtime_source="slack",
             )
         else:

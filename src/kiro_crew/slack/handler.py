@@ -3166,6 +3166,15 @@ async def handle_message(
                     )
                 except Exception:
                     logger.debug("Failed to persist channel_name for %s", session_key)
+                # Also set on the in-memory slot so the gateway save cycle
+                # does not overwrite the disk value with an empty string.
+                if _dashboard_state and hasattr(_dashboard_state, "_slots"):
+                    from kiro_crew.dashboard.channel_slots import channel_slot_name
+
+                    _slot_key = channel_slot_name(session_key)
+                    _slot = getattr(_dashboard_state, "_slots", {}).get(_slot_key)
+                    if _slot is not None:
+                        _slot.channel_name = _ch_name
         if thread_owner_key is None and not route_pinned:
             # Self-link: thread index maps the bare Slack thread_ts to this
             # session's canonical key. reply_ts (not session_key) is the true
@@ -3235,7 +3244,12 @@ async def handle_message(
                             + _thread_transcript
                         )
             except Exception:
-                logger.debug("Failed to fetch thread replies for context injection", exc_info=True)
+                logger.info(
+                    "Thread context injection failed for %s/%s — LLM will lack prior messages",
+                    channel,
+                    thread_ts,
+                    exc_info=True,
+                )
 
         # After a soft-cancel, kiro-cli drops the cancelled turn from its
         # conversation log — but the user+assistant text is persisted to our

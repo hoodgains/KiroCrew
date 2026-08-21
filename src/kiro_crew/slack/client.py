@@ -228,6 +228,13 @@ class SlackClientOps(ABC):
         """Download a Slack-hosted file to a local path."""
         raise NotImplementedError
 
+    async def join_channel(self, channel: str) -> bool:
+        """Join a public channel. Returns True on success, False on failure.
+
+        Used as a fallback when an API call returns ``not_in_channel``.
+        """
+        return False
+
 
 class RealSlackClient(SlackClientOps):
     """Slack Web API client backed by slack_sdk."""
@@ -760,23 +767,68 @@ class RealSlackClient(SlackClientOps):
         return None
 
     async def fetch_thread_replies(self, channel: str, thread_ts: str, limit: int = 200, warn_on_pagination: bool = True) -> list[dict]:
-        """Fetch parent message + replies via conversations.replies API."""
-        try:
-            resp = await self._web.conversations_replies(
-                channel=channel, ts=thread_ts, limit=limit,
-            )
-            data: dict = resp.data if hasattr(resp, "data") else dict(resp)  # type: ignore[assignment,call-overload]
-            messages: list[dict] = data.get("messages", [])
-            meta: dict = data.get("response_metadata", {})
-            if warn_on_pagination and meta.get("next_cursor"):
-                logger.warning(
-                    "Thread %s/%s has more messages than limit=%d; import is incomplete",
-                    channel, thread_ts, limit,
+        """Fetch parent message + replies via conversations.replies API.
+
+        If the bot is not a member of the channel, attempts to join first
+        (public channels only) and retries once.
+        """
+        for attempt in range(2):
+            try:
+                resp = await self._web.conversations_replies(
+                    channel=channel, ts=thread_ts, limit=limit,
                 )
-            return messages
-        except (SlackClientError, aiohttp.ClientError, asyncio.TimeoutError):
-            logger.debug("fetch_thread_replies failed for %s/%s", channel, thread_ts, exc_info=True)
+                data: dict = resp.data if hasattr(resp, "data") else dict(resp)  # type: ignore[assignment,call-overload]
+                messages: list[dict] = data.get("messages", [])
+                meta: dict = data.get("response_metadata", {})
+                if warn_on_pagination and meta.get("next_cursor"):
+                    logger.warning(
+                        "Thread %s/%s has more messages than limit=%d; import is incomplete",
+                        channel, thread_ts, limit,
+                    )
+                return messages
+            except SlackClientError as exc:
+                # Detect not_in_channel — auto-join and retry once.
+                error_code = getattr(getattr(exc, "response", None), "get", lambda *_: None)("error")
+                if not error_code and hasattr(exc, "response"):
+                    # slack_sdk.errors.SlackApiError stores response as a dict-like
+                    resp_data = exc.response  # type: ignore[union-attr]
+                    if hasattr(resp_data, "data"):
+                        error_code = resp_data.data.get("error")  # type: ignore[union-attr]
+                    elif isinstance(resp_data, dict):
+                        error_code = resp_data.get("error")
+                if error_code == "not_in_channel" and attempt == 0:
+                    logger.info(
+                        "Bot not in channel %s — attempting to join for thread context",
+                        channel,
+                    )
+                    if await self.join_channel(channel):
+                        continue  # retry fetch after joining
+                    else:
+                        logger.warning(
+                            "Could not join channel %s — thread context will be missing",
+                            channel,
+                        )
+                        return []
+                logger.debug("fetch_thread_replies failed for %s/%s", channel, thread_ts, exc_info=True)
+                return []
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                logger.debug("fetch_thread_replies failed for %s/%s", channel, thread_ts, exc_info=True)
+                return []
         return []
+
+    async def join_channel(self, channel: str) -> bool:
+        """Join a public channel via conversations.join.
+
+        Returns True on success. Fails silently for private channels
+        (which require an invitation).
+        """
+        try:
+            await self._web.conversations_join(channel=channel)
+            logger.info("Successfully joined channel %s", channel)
+            return True
+        except SlackClientError:
+            logger.debug("Failed to join channel %s", channel, exc_info=True)
+            return False
 
     async def conversations_list(self) -> list[dict]:
         """Fetch all public + private channels the bot is a member of.

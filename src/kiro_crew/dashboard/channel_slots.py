@@ -1000,6 +1000,11 @@ async def _reconcile_channel_slots_locked(state: "DashboardState", window_minute
             _sync_dashboard_slots(state)
         state.push_slots_update()
 
+    # Backfill channel_name for any Slack slots still missing it (e.g. sessions
+    # created before the handler started persisting the name, or sessions whose
+    # metadata was overwritten by a save cycle before the in-memory fix).
+    await _backfill_channel_names(state, metadata, log)
+
     return surfaced
 
 

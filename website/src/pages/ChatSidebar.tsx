@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, memo, useMemo, useCallback, Fragment } from 'react'
 import { createPortal } from 'react-dom'
 import { LayoutGroup, AnimatePresence, motion } from 'framer-motion'
-import { Plus, X, Pin, Monitor, Eye, EyeOff, VenetianMask, Droplet, FolderPlus, MessageSquare, MessageSquarePlus, MessagesSquare, Folder, ChevronRight, ChevronDown, ChevronUp, Clock, Pencil, BrushCleaning, Link2, Circle, MoreVertical, Tag as TagIcon, Columns3, GripVertical, Zap, Check, Copy, ListFilter, List, Loader, Loader2, Settings, RotateCcw, Bot, ExternalLink, Cpu, GitMerge, Workflow, CircleDot, Users, TriangleAlert, Goal, MessageCircleQuestionMark, ShieldCheck, Repeat } from 'lucide-react'
+import { Plus, X, Pin, Monitor, Eye, EyeOff, VenetianMask, Droplet, FolderPlus, MessageSquare, MessageSquarePlus, MessagesSquare, Folder, ChevronRight, ChevronDown, ChevronUp, Clock, Pencil, BrushCleaning, Link2, Circle, MoreVertical, Tag as TagIcon, Columns3, GripVertical, Zap, Check, Copy, ListFilter, List, Hash, Loader, Loader2, Settings, RotateCcw, Bot, ExternalLink, Cpu, GitMerge, Workflow, CircleDot, Users, TriangleAlert, Goal, MessageCircleQuestionMark, ShieldCheck, Repeat } from 'lucide-react'
 import GithubLogo from '../components/icons/GithubLogo'
 import GitlabLogo from '../components/icons/GitlabLogo'
 import JiraLogo from '../components/icons/JiraLogo'
@@ -1374,6 +1374,8 @@ export const SORT_LABEL_KEY: Record<SortKey, string> = {
 const SORT_LS_KEY = 'mc-session-sort'
 /** Flat view ("explode chats out of folders") persistence key. */
 const FLAT_VIEW_LS_KEY = 'mc-sidebar-flat-view'
+/** Channel view ("group by Slack channel name") persistence key. */
+const CHANNEL_VIEW_LS_KEY = 'mc-sidebar-channel-view'
 
 export const SIDEBAR_MIN = 180
 export const SIDEBAR_MAX = 1400
@@ -1455,6 +1457,26 @@ interface FilterDimension {
    *  because the folder filter un-hides that row's own ancestor chain rather
    *  than clearing globally. */
   clear: (slot: Slot) => void
+}
+
+/** Collapsible group header for the channel view. */
+function ChannelGroup({ label, count, open, onToggle, children }: { label: string; count: number; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  return (
+    <div className="mb-1">
+      <button
+        type="button"
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[12px] text-muted hover:text-text hover:bg-bg-hover transition-all bg-transparent border-none cursor-pointer text-left"
+        onClick={onToggle}
+        aria-expanded={open}
+      >
+        {open ? <ChevronDown size={11} className="shrink-0" /> : <ChevronRight size={11} className="shrink-0" />}
+        <Hash size={11} className="shrink-0 text-muted" />
+        <span className="flex-1 truncate font-medium">{label}</span>
+        <span className="text-[10px] text-muted shrink-0">{count}</span>
+      </button>
+      {open && <div className="ml-3 border-l border-border pl-1">{children}</div>}
+    </div>
+  )
 }
 
 function ChatSidebar({
@@ -1648,6 +1670,13 @@ function ChatSidebar({
   const toggleFlatView = useCallback(() => {
     setFlatView(v => { const next = !v; safeSetItem(FLAT_VIEW_LS_KEY, next ? '1' : '0'); return next })
   }, [])
+  // Channel view: group sessions by their Slack channel name. Sessions without
+  // a channel_name go into an "Other" bucket. Pure view projection like flat view.
+  const [channelView, setChannelView] = useState(() => localStorage.getItem(CHANNEL_VIEW_LS_KEY) === '1')
+  // Per-channel collapsed state. When collapse-all is clicked, all channels
+  // are added here. Expanding one removes just that channel.
+  const [collapsedChannels, setCollapsedChannels] = useState<Set<string>>(new Set())
+  const [allChannelsCollapsed, setAllChannelsCollapsed] = useState(false)
   const [activeFilters, setActiveFilters] = useState<Set<SessionFilterKey>>(() => {
     const initialFilters = new Set<SessionFilterKey>()
     for (const filterDef of SESSION_FILTERS) { if (localStorage.getItem(filterDef.storageKey) === '1') initialFilters.add(filterDef.key) }
@@ -4270,7 +4299,7 @@ function ChatSidebar({
                 return (
                   <span className="text-muted shrink-0 inline-flex items-center gap-0.5" title={label} aria-label={label}>
                     {hasChannelBrandIcon(ns) ? <ChannelBrandIcon channel={ns} size={10} /> : <MessageSquare size={10} />}
-                    {s.channel_name && <span className="text-[10px] text-muted truncate max-w-[80px]">#{s.channel_name}</span>}
+                    {s.channel_name && <span className="text-[10px] text-muted truncate">#{s.channel_name}</span>}
                   </span>
                 )
               })()}
@@ -4827,46 +4856,29 @@ function ChatSidebar({
               <button className="w-7 h-7 rounded-md border border-border bg-transparent text-muted cursor-pointer flex items-center justify-center hover:border-border-strong hover:text-text transition-all" title={i18nT('pages.chatSidebar.more_options')} aria-label={i18nT('pages.chatSidebar.more_options')}><MoreVertical size={14} /></button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[180px]">
-              <DropdownMenuItem disabled={seedStateLanesMutation.isPending} onClick={() => {
-                if (seedStateLanesMutation.isPending) return
-                const isActive = tagColumnsEnabled && rawColumns.length > 0
-                const next = !isActive
-                const cfg = loadChatConfig()
-                saveChatConfig({ ...cfg, tagColumnsEnabled: next })
-                setSeedError('')
-                if (!next) {
-                  // Leaving board view: give back the width the user chose before
-                  // the lanes were auto-widened, rather than stranding a ~900px
-                  // sidebar in list view.
-                  const prior = parseInt(localStorage.getItem(SIDEBAR_PRE_BOARD_LS_KEY) || '', 10)
-                  if (!isNaN(prior) && prior >= SIDEBAR_MIN && prior <= SIDEBAR_MAX) {
-                    setSidebarWidth(prior)
-                    onWidthChangeRef.current?.(prior)
-                    safeSetItem(SIDEBAR_LS_KEY, String(prior))
-                    safeSetItem(SIDEBAR_PRE_BOARD_LS_KEY, '')
-                  }
-                }
-                // Seed when the board has no lanes and nothing configured worth
-                // keeping. Seeding is additive and idempotent, so a repeat click
-                // cannot duplicate lanes; the pending guard above only stops a
-                // second request racing the first before the cache refreshes.
-                if (next && !rawColumns.some(c => c.source === 'state' || c.name || (c.tag_ids || []).length || c.include_untagged)) {
-                  seedStateLanesMutation.mutate()
-                }
-              }}>
-                <Columns3 size={14} className={tagColumnsEnabled && rawColumns.length > 0 ? 'text-accent' : 'text-muted'} />
-                {tagColumnsEnabled && rawColumns.length > 0 ? i18nT('pages.chatSidebar.switch_to_list_view') : i18nT('pages.chatSidebar.switch_to_board_view')}
-              </DropdownMenuItem>
-              {tagColumnsEnabled && rawColumns.length > 0 && missingLanes.length > 0 && (
-                <DropdownMenuItem
-                  data-testid="add-state-lanes"
-                  disabled={seedStateLanesMutation.isPending}
-                  onClick={() => { if (!seedStateLanesMutation.isPending) seedStateLanesMutation.mutate() }}
-                >
-                  <Columns3 size={14} className="text-muted" />
-                  {i18nT('pages.chatSidebar.add_state_lanes')}
-                </DropdownMenuItem>
-              )}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <List size={14} className="text-muted" /> Switch view
+                  <ChevronRight size={13} className="ml-auto text-muted" />
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[160px]">
+                  <DropdownMenuItem onClick={() => { const cfg = loadChatConfig(); saveChatConfig({ ...cfg, tagColumnsEnabled: false }); setChannelView(false); safeSetItem(CHANNEL_VIEW_LS_KEY, '0'); setFlatView(false); safeSetItem(FLAT_VIEW_LS_KEY, '0') }}>
+                    <List size={14} className={!channelView && !(tagColumnsEnabled && rawColumns.length > 0) ? 'text-accent' : 'text-muted'} />
+                    Default
+                    {!channelView && !(tagColumnsEnabled && rawColumns.length > 0) && <Check size={14} className="ml-auto text-accent" />}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { const cfg = loadChatConfig(); saveChatConfig({ ...cfg, tagColumnsEnabled: true }); setChannelView(false); safeSetItem(CHANNEL_VIEW_LS_KEY, '0'); setFlatView(false); safeSetItem(FLAT_VIEW_LS_KEY, '0'); if (rawColumns.length === 0) createColumnMutation.mutate({ name: '', tag_ids: [], mode: 'any' }) }}>
+                    <Columns3 size={14} className={tagColumnsEnabled && rawColumns.length > 0 && !channelView ? 'text-accent' : 'text-muted'} />
+                    Board view
+                    {tagColumnsEnabled && rawColumns.length > 0 && !channelView && <Check size={14} className="ml-auto text-accent" />}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setChannelView(true); safeSetItem(CHANNEL_VIEW_LS_KEY, '1'); setFlatView(false); safeSetItem(FLAT_VIEW_LS_KEY, '0') }}>
+                    <Hash size={14} className={channelView ? 'text-accent' : 'text-muted'} />
+                    Channel view
+                    {channelView && <Check size={14} className="ml-auto text-accent" />}
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuItem onClick={() => { setCleanupOpen(!cleanupOpen); setCleanupExpanded(false); setCleanupError('') }}>
                 <BrushCleaning size={14} className="text-muted" />
                 {i18nT('pages.chatSidebar.clean_up_sessions')}
@@ -5083,9 +5095,29 @@ function ChatSidebar({
             <button type="button" className={`absolute ${folders.length > 0 ? 'right-[56px]' : 'right-8'} top-1/2 -translate-y-1/2 text-muted hover:text-text cursor-pointer bg-transparent border-none p-0 leading-none transition-colors`} onClick={() => setSlotFilter('')} aria-label={i18nT('pages.chatSidebar.clear_search')}><X size={13} /></button>
           )}
           <div className="absolute right-1 inset-y-0 flex items-center gap-0.5">
-            {/* Flat-view toggle only makes sense when folders exist — without
-             *  them the list is already flat. */}
-            {folders.length > 0 && (
+            {/* Flat-view toggle only makes sense when folders exist and we're
+             *  NOT in channel view. In channel view, show collapse-all instead. */}
+            {channelView ? (
+            <button
+              type="button"
+              className={`relative w-6 h-6 rounded flex items-center justify-center cursor-pointer transition-colors border-none ${allChannelsCollapsed ? 'text-accent bg-accent-subtle' : 'text-muted hover:text-text hover:bg-bg-hover bg-transparent'}`}
+              onClick={() => {
+                if (allChannelsCollapsed) {
+                  setCollapsedChannels(new Set())
+                  setAllChannelsCollapsed(false)
+                } else {
+                  setCollapsedChannels(new Set(filteredSlots.map(s => s.channel_name || '').filter((v, i, a) => a.indexOf(v) === i)))
+                  setAllChannelsCollapsed(true)
+                }
+              }}
+              title={allChannelsCollapsed ? 'Expand all channels' : 'Collapse all channels'}
+              aria-label={allChannelsCollapsed ? 'Expand all channels' : 'Collapse all channels'}
+              aria-pressed={allChannelsCollapsed}
+              data-testid="channel-collapse-toggle"
+            >
+              {allChannelsCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+            </button>
+            ) : folders.length > 0 && (
             <button
               type="button"
               className={`relative w-6 h-6 rounded flex items-center justify-center cursor-pointer transition-colors border-none ${flatView ? 'text-accent bg-accent-subtle' : 'text-muted hover:text-text hover:bg-bg-hover bg-transparent'}`}
@@ -5490,7 +5522,50 @@ function ChatSidebar({
         </div>
       )}
       <LayoutGroup id="chat-slots">
-        {flatView && folders.length > 0 ? (
+        {channelView ? (
+          // Channel view: group sessions by their Slack channel name.
+          // Sessions without a channel_name go into "Other".
+          <motion.div layoutScroll className="flex-1 min-h-0 overflow-y-auto scrollbar-none p-2 flex flex-col" style={{ scrollbarWidth: 'none' }} data-testid="channel-view-lane">
+            {(() => {
+              // Group filteredSlots by channel_name
+              const groups = new Map<string, Slot[]>()
+              for (const s of filteredSlots) {
+                const ch = s.channel_name || ''
+                const bucket = groups.get(ch)
+                if (bucket) bucket.push(s)
+                else groups.set(ch, [s])
+              }
+              // Sort channel names alphabetically, "Other" (empty) at the end
+              const channelNames = [...groups.keys()].filter(k => k !== '').sort((a, b) => a.localeCompare(b))
+              if (groups.has('')) channelNames.push('')
+              return channelNames.map(ch => {
+                const channelSlots = groups.get(ch)!
+                const label = ch || 'Other'
+                const groupKey = ch || '__other__'
+                return (
+                  <ChannelGroup key={groupKey} label={label} count={channelSlots.length} open={!collapsedChannels.has(ch)} onToggle={() => {
+                    setCollapsedChannels(prev => {
+                      const next = new Set(prev)
+                      if (next.has(ch)) { next.delete(ch); setAllChannelsCollapsed(false) }
+                      else next.add(ch)
+                      return next
+                    })
+                  }}>
+                    {channelSlots.map((s, i) => {
+                      const isActive = activeSlot === s.key
+                      const nextIsActive = i < channelSlots.length - 1 && activeSlot === channelSlots[i + 1].key
+                      const showDivider = i < channelSlots.length - 1 && !isActive && !nextIsActive
+                      return renderSessionRow(s, 0, showDivider, `channel:${groupKey}`)
+                    })}
+                  </ChannelGroup>
+                )
+              })
+            })()}
+            {filteredSlots.length === 0 && (
+              <div className="px-3 py-4 text-[12px] text-muted">{i18nT('pages.chatSidebar.no_sessions_match')}</div>
+            )}
+          </motion.div>
+        ) : flatView && folders.length > 0 ? (
           // Flat view: every chat exploded out of its folder into one lane.
           // Removes only the folder rendering hierarchy — sort, pin priority,
           // filters, and search all apply as usual (filteredSlots). No folder
