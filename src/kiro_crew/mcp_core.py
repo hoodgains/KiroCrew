@@ -757,6 +757,84 @@ def strict_identity_diagnosis(server: str = "kirocrew-core") -> str:
     )
 
 
+#: The REFLEXIVE tool set: MCP tools whose semantics embed a "me" — they read,
+#: write, or target the CALLING session's own state (its ledger, its slot, its
+#: loop, its folder tree, its outbound identity). For these, a sub-agent must
+#: never be able to act as its parent: a sub-agent spawned via ``spawn_run``
+#: lives under the parent slot's process tree, so the lenient ``/proc`` ancestor
+#: walk in :func:`_resolve_session_key` would silently resolve to the PARENT
+#: session and land the read/write/mutation on the wrong slot. Every reflexive
+#: tool must therefore resolve through :func:`require_strict_session_key` (or the
+#: raw :func:`_resolve_session_key_strict`, for the short-circuit exceptions
+#: listed below) and fail closed on an unverifiable identity.
+#:
+#: This is DATA, not lore: ``test/test_identity_topology.py`` enumerates the
+#: hard-refuse call sites from source and asserts each routes through the gate,
+#: so a new reflexive tool that skips it fails a test instead of shipping a
+#: silent parent-slot write.
+#:
+#: Deliberately EXCLUDED from the hard-refuse contract (the issue #5913 carve-out
+#: — these resolve strictly but do NOT hard-refuse an empty key):
+#:   * ``autonudge_stop`` / ``monitor_start`` / ``monitor_update`` — stateless
+#:     directive emitters. The strict key is used ONLY to short-circuit a
+#:     context where a directive can never be applied (cron/hook/subagent); an
+#:     empty key falls through to emit the directive, which the session-aware
+#:     consumer (chat_runner) then binds to ITS OWN loop. There is no parent
+#:     state to protect at emit time.
+#:   * ``ask_question`` — gates on whether a dashboard SURFACE is open, not on
+#:     identity alone; an empty key falls through to the directive.
+#:   * computer-use — resolves for AUDIT only; an unresolved key becomes an
+#:     explicitly-unresolved audit identity rather than a refusal.
+REFLEXIVE_TOOLS: frozenset[str] = frozenset(
+    {
+        "session_ledger_read",
+        "session_ledger_record",
+        "session_create",
+        "session_stop",
+        "session_send",
+        "session_read_message",
+        "chat_folder_move_session",
+        "send_notification",
+    }
+)
+
+
+def require_strict_session_key(purpose: str, server: str = "kirocrew-core") -> tuple[str, str]:
+    """Resolve the calling session STRICTLY, or return why the tool is refused.
+
+    The single gate every hard-refusing reflexive tool routes through. Returns
+    ``(session_key, "")`` on success or ``("", error_text)`` on failure, where
+    ``error_text`` is a complete ``Error:`` sentence naming *purpose* and
+    already appending :func:`strict_identity_diagnosis` — so a caller does the
+    whole refusal with ``sk, err = require_strict_session_key(...); if err:
+    return err``.
+
+    *purpose* is a short noun phrase for what is being refused, e.g.
+    ``"the session list"`` or ``"stopping another session"``; it is
+    interpolated into the refusal so the model reads a specific reason, not a
+    generic one. *server* threads through to :func:`strict_identity_diagnosis`
+    so a per-server refusal names the right MCP server to route.
+
+    This is the promotion of ``mcp_tools/ledger.py::_strict_session_key`` into
+    one shared contract: the lenient default resolver walks ``/proc`` ancestors,
+    and a sub-agent lives under its parent slot's process tree — the walk would
+    silently resolve to the PARENT session and land the reflexive read/write on
+    the wrong slot. Only gateway-authored identities count. The verified key is
+    RETURNED (not left for a write helper to re-derive) so the value that was
+    checked is the value that is used — re-resolving would authorize the check
+    and the action as potentially different sessions.
+    """
+    sk = _resolve_session_key_strict()
+    if not sk:
+        return "", (
+            f"Error: this session's identity could not be verified strictly, so "
+            f"{purpose} is refused — a sub-agent inherits no session identity of "
+            f"its own, so run this from the parent (directly-identified) session "
+            f"instead." + strict_identity_diagnosis(server)
+        )
+    return sk, ""
+
+
 def _deny_channel_agent_messaging(caller_session: str, tool_name: str) -> str | None:
     """Return an ``Error:`` denial when a channel agent calls a messaging tool.
 
@@ -1264,9 +1342,7 @@ def _http_error_body(exc: urllib.error.HTTPError) -> dict:
                 # content, so only a short identifier-shaped value survives —
                 # anything else is dropped rather than echoed onward.
                 raw_code = parsed.get("code")
-                if isinstance(raw_code, str) and _re.fullmatch(
-                    r"[a-z0-9_.-]{1,64}", raw_code
-                ):
+                if isinstance(raw_code, str) and _re.fullmatch(r"[a-z0-9_.-]{1,64}", raw_code):
                     code = raw_code
         except Exception:
             pass

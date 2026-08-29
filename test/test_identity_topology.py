@@ -584,3 +584,145 @@ def test_every_channel_transport_dispatch_publishes_identity() -> None:
         "X-Session-Key; otherwise they fail with HTTP 400 'missing "
         "X-Session-Key' from that channel (#232)."
     )
+
+
+# ---------------------------------------------------------------------------
+# Reflexive-tool identity gate (#5913)
+# ---------------------------------------------------------------------------
+# A REFLEXIVE tool embeds a "me": it reads, writes, or targets the CALLING
+# session's own state (its ledger, slot, loop, folder tree, outbound identity).
+# For these, a sub-agent must never act as its parent — a spawn_run sub-agent
+# lives under the parent slot's process tree, so the lenient /proc walk in
+# _resolve_session_key() silently resolves to the PARENT and lands the write on
+# the wrong slot. The invariant is: every hard-refusing reflexive tool resolves
+# through the ONE shared gate mcp_core.require_strict_session_key(), which fails
+# closed on an unverifiable identity.
+#
+# The hazard this guards is the NEXT tool, not the existing ones: nothing stops
+# a new reflexive tool from calling the raw _resolve_session_key_strict() and
+# then forgetting the `if not sk:` refusal arm, or calling the lenient resolver
+# by mistake — and nothing would fail if it did (a sub-agent writes its parent's
+# state, silently). So this enumerates every file that calls the RAW strict
+# resolver from source and asserts each is registered: a new hard-refuse caller
+# must route through the gate, and a new raw caller must justify itself here.
+
+_RAW_STRICT_RESOLVER_TOKEN = re.compile(r"_resolve_session_key_strict\(")
+
+#: file (relative to src/kiro_crew) -> why it may call the RAW strict resolver
+#: directly instead of routing through require_strict_session_key(). Every entry
+#: is a deliberate exception to "hard-refuse reflexive tools use the gate":
+#: either it DEFINES the gate, it SHORT-CIRCUITS (empty key falls through to a
+#: directive rather than refusing), it resolves for AUDIT only, or it is a
+#: conditional/wrapper refusal whose return contract the tuple gate does not fit.
+_RAW_STRICT_RESOLVER_CALL_SITES: dict[str, str] = {
+    "mcp_core.py": (
+        "OWNER: defines _resolve_session_key_strict, strict_identity_diagnosis, "
+        "and the require_strict_session_key gate itself; plus _slack_outward "
+        "fail-closed resolver returning a ('unresolved', None) tuple, not a "
+        "reflexive-tool refusal string"
+    ),
+    "mcp_tools/control.py": (
+        "SHORT-CIRCUIT exceptions (the #5913 carve-out): autonudge_stop, "
+        "monitor_start, monitor_update are stateless directive emitters that use "
+        "the strict key ONLY to bail out of a context where a directive can never "
+        "apply (cron/hook/subagent) — an empty key FALLS THROUGH to emit the "
+        "directive, which chat_runner binds to its own loop; ask_question gates "
+        "on whether a dashboard surface is open, not identity alone; the "
+        "countdown-affordance gate publishes nothing on an empty key. None hard-"
+        "refuses, so none takes the gate's refuse arm."
+    ),
+    "mcp_tools/workflows.py": (
+        "CONDITIONAL hard-refuse (workflow_run, guarded by `if workflow_ref:`) "
+        "whose refusal is wrapped in _wf_return(..., outcome='error') rather than "
+        "a bare string — it resolves strictly and fails closed, but its return "
+        "contract does not fit the (key, err) tuple gate. Correct as-is."
+    ),
+    "mcp_tools/messaging.py": (
+        "send_message's channel_type send is a per-DESTINATION refusal (a "
+        "conditional inline check, not a self-reflexive gate) and the channel-"
+        "upload path uses the strict key only as a delivery OPTIMIZATION that "
+        "skips silently on an empty key. send_notification itself routes through "
+        "the gate."
+    ),
+    "mcp_computer.py": (
+        "AUDIT-only: resolves `_resolve_session_key_strict() or "
+        "_unresolved_session_key()` — an empty key becomes an explicitly-"
+        "unresolved audit identity (unresolved:<pid>), never a forged one, and "
+        "computer-use is deliberately not identity-gated (one operator opt-in)."
+    ),
+    "mcp_cron.py": (
+        "wrapper: _strict_caller_key() returns the raw resolver; its own refusal "
+        "helper _unidentified_caller_refusal uses strict_identity_diagnosis("
+        "'kirocrew-cron') separately."
+    ),
+}
+
+
+def test_reflexive_tool_strict_resolver_call_sites_are_registered() -> None:
+    """A new hard-refuse reflexive tool must route through the shared gate.
+
+    Any file calling the RAW ``_resolve_session_key_strict()`` must be registered
+    as a deliberate exception (definition / short-circuit / audit / conditional-
+    wrapper). A new reflexive tool that hard-refuses on identity should instead
+    call ``mcp_core.require_strict_session_key`` — which is not the raw token and
+    so does not need registering — so an unregistered raw call site is the signal
+    that a new tool re-derived the refusal by hand and may have gotten the fail-
+    closed arm wrong (the #5913 hazard).
+    """
+    src = _src_root()
+    # Normalize to forward slashes so the registry keys match on Windows too
+    # (``relative_to`` yields OS-native separators; the registry is POSIX-style).
+    found = {
+        p.relative_to(src).as_posix()
+        for p in src.rglob("*.py")
+        if _RAW_STRICT_RESOLVER_TOKEN.search(p.read_text(encoding="utf-8", errors="replace"))
+    }
+    registered = set(_RAW_STRICT_RESOLVER_CALL_SITES)
+
+    unregistered = found - registered
+    stale = registered - found
+    assert not unregistered, (
+        "New raw _resolve_session_key_strict() call site(s) detected: "
+        f"{sorted(unregistered)}.\n"
+        "A hard-refusing reflexive tool (one that reads/writes/targets the "
+        "CALLING session's own state) must route through the shared gate "
+        "mcp_core.require_strict_session_key(purpose), which resolves strictly "
+        "and fails closed with a diagnosed refusal — do NOT re-derive the "
+        "`if not sk: return Error...` arm by hand (#5913). If the raw resolver "
+        "is intentional (a short-circuit directive emitter, an audit-only "
+        "resolve, or a conditional/wrapper refusal), register the file in "
+        "_RAW_STRICT_RESOLVER_CALL_SITES with its justification."
+    )
+    assert not stale, (
+        "Registered raw _resolve_session_key_strict() call site(s) no longer "
+        f"reference the token: {sorted(stale)}. Remove them from "
+        "_RAW_STRICT_RESOLVER_CALL_SITES."
+    )
+
+
+def test_reflexive_tools_constant_is_declared() -> None:
+    """The reflexive-tool set is data, not lore, and names the hard-refuse tools.
+
+    Guards that mcp_core.REFLEXIVE_TOOLS exists and covers the tools whose
+    handlers route through require_strict_session_key. If a reflexive tool is
+    renamed or a new one is added, this list is where "which tools must be
+    strict" is recorded — keeping it in sync with the handlers is the point.
+    """
+    from kiro_crew import mcp_core
+
+    assert isinstance(mcp_core.REFLEXIVE_TOOLS, frozenset)
+    # The hard-refuse reflexive tools that now route through the shared gate.
+    expected = {
+        "session_ledger_read",
+        "session_ledger_record",
+        "session_create",
+        "session_stop",
+        "session_send",
+        "session_read_message",
+        "chat_folder_move_session",
+        "send_notification",
+    }
+    assert expected <= mcp_core.REFLEXIVE_TOOLS, (
+        "REFLEXIVE_TOOLS is missing hard-refuse reflexive tools: "
+        f"{sorted(expected - mcp_core.REFLEXIVE_TOOLS)}"
+    )

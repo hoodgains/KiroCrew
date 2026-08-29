@@ -144,7 +144,7 @@ def schemas() -> list[dict[str, Any]]:
                         "type": "string",
                         "description": (
                             "JSON object for POST bodies, serialized as a string — "
-                            "e.g. '{\"id\": \"INV-42\", \"status\": \"resolved\"}' for "
+                            'e.g. \'{"id": "INV-42", "status": "resolved"}\' for '
                             "/incident/transition"
                         ),
                     },
@@ -322,15 +322,11 @@ def _crew_session_key() -> tuple[str, str]:
     directly attributable. Both crew tools send THIS key rather than resolving
     their own, so the identity that passed the gate is the identity on the wire.
     """
-    _crew_sk = mcp_core._resolve_session_key_strict()
-    if not _crew_sk:
-        return "", (
-            "Error: this tool needs a directly-identified dashboard session. "
-            "A subagent resolves to its parent's session, which would read and "
-            "write the parent crew's ledger. Run this from the crew's own "
-            "session." + mcp_core.strict_identity_diagnosis()
-        )
-    return _crew_sk, ""
+    return mcp_core.require_strict_session_key(
+        "this tool needs a directly-identified dashboard session — a subagent "
+        "resolves to its parent's session, which would read and write the parent "
+        "crew's ledger, so run this from the crew's own session"
+    )
 
 
 def issue_radar_record_investigation(name: str, args: dict[str, Any]) -> str:
@@ -408,7 +404,9 @@ def ops_mission_control_api(name: str, args: dict[str, Any]) -> str:
     _omc_url = "/api/apps/ops-mission-control" + _omc_path
     if _omc_query:
         _omc_url += "?" + _omc_query
-    _omc_resp = mcp_core._get(_omc_url) if _omc_method == "GET" else mcp_core._post(_omc_url, _omc_body)
+    _omc_resp = (
+        mcp_core._get(_omc_url) if _omc_method == "GET" else mcp_core._post(_omc_url, _omc_body)
+    )
     # Serialize compactly and redact on the way OUT: signals, incident
     # titles and ledger entries carry text from external monitoring
     # systems and prior LLM turns, so a credential or exfil URL quoted
@@ -420,8 +418,7 @@ def ops_mission_control_api(name: str, args: dict[str, Any]) -> str:
     _omc_cap = 60_000
     if len(_omc_text) > _omc_cap:
         _omc_text = (
-            _omc_text[:_omc_cap]
-            + f"\n… truncated ({len(_omc_text)} chars total). Narrow the "
+            _omc_text[:_omc_cap] + f"\n… truncated ({len(_omc_text)} chars total). Narrow the "
             "call (e.g. query filters) to see the rest."
         )
     return _omc_text
@@ -504,9 +501,7 @@ def issue_radar_crew_record(name: str, args: dict[str, Any]) -> str:
     # mentioning labels at all, so the store kept the previous set and the
     # crew's record claimed labels it had just taken off the issue.
     if "labels_applied" in args:
-        _cw_body["labels_applied"] = [
-            redact(s) for s in (args.get("labels_applied") or []) if s
-        ]
+        _cw_body["labels_applied"] = [redact(s) for s in (args.get("labels_applied") or []) if s]
     # The flat ci_* args are re-assembled into the store's `ci_state` dict
     # (crew_store merges it key-by-key). `ci_state` the ARG is the forge's
     # verdict word and becomes the dict's `state`; an int reading of 0 is

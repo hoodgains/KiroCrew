@@ -549,14 +549,12 @@ def send_message(name: str, args: dict[str, Any]) -> str:
 
 
 def send_notification(name: str, args: dict[str, Any]) -> str:
-    caller_session = mcp_core._resolve_session_key_strict()
-    if not caller_session:
-        return (
-            "Error: cannot verify caller identity for send_notification "
-            "(no gateway-injected session key or HMAC-verified pid). "
-            "Refusing to publish without a trusted governance identity."
-            + mcp_core.strict_identity_diagnosis()
-        )
+    caller_session, id_err = mcp_core.require_strict_session_key(
+        "send_notification is refused — publishing requires a trusted governance "
+        "identity (no gateway-injected session key or HMAC-verified pid)"
+    )
+    if id_err:
+        return id_err
     # Channel-agent containment: same boundary
     # as send_message — an auto-approved call emits no permission event,
     # so channel.py's guard alone cannot hold it.

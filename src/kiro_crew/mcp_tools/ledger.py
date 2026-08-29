@@ -125,23 +125,14 @@ def schemas() -> list[dict[str, Any]]:
 def _strict_session_key() -> tuple[str, str]:
     """Resolve the calling session strictly, refusing PID-walked identities.
 
-    Returns ``(key, "")`` or ``("", error)``. The lenient default resolver
-    includes a ``/proc`` ancestor walk, and a subagent lives under its parent
-    slot's process tree — the walk would silently resolve to the PARENT
-    session, disclosing or overwriting the parent's ledger. The strict
-    resolver only accepts gateway-authored identities, and the verified key is
-    passed explicitly to the transport so the value that was checked is the
-    value that is used.
+    Thin wrapper over the shared :func:`mcp_core.require_strict_session_key`
+    gate (#5913): a subagent lives under its parent slot's process tree, so the
+    lenient ``/proc`` walk would silently resolve to the PARENT session and
+    disclose or overwrite its ledger. The strict resolver only accepts
+    gateway-authored identities, and the verified key is passed explicitly to
+    the transport so the value that was checked is the value that is used.
     """
-    sk = mcp_core._resolve_session_key_strict()
-    if not sk:
-        return "", (
-            "Error: this session's identity could not be verified strictly, "
-            "so the ledger is not reachable from here. Subagents inherit no "
-            "session identity of their own — record ledger updates from the "
-            "parent session instead." + mcp_core.strict_identity_diagnosis()
-        )
-    return sk, ""
+    return mcp_core.require_strict_session_key("the ledger is not reachable from here")
 
 
 def session_ledger_read(name: str, args: dict[str, Any]) -> str:
